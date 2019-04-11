@@ -1,0 +1,80 @@
+#!/usr/bin/env Rscript
+
+
+library(data.table)
+library(Rsubread)
+
+# Empty bam files were excluded (moved out of directory) prior to this step;
+bamFilePath <- "/scratch/caw5cv/iMapSplice/mapped/"
+gtfFilePath <- "dm3.gtf"
+
+# Name to store feature counts RDS file
+fc_RDS <- "dm3.featureCounts.RDS"
+gene_lengths_filename <- "dm3.genelength"
+
+# Name of expression matrix
+expression_matrix_filename <- "dm3.featureCountMatrix"
+
+# get feature counts
+get_featurecounts <- function(bamFilePath, gtfFilePath, fc_RDS) {
+  if ( ! file.exists(fc_RDS)) {
+      print("Tabulating feature counts...")
+      bam.files <- list.files(path=bamFilePath, pattern="*.bam$", full.names=T)
+      fc<-featureCounts(files=bam.files,
+                        annot.ext=gtfFilePath,
+                        isGTFAnnotationFile=T,
+                        nthreads=6,
+                        useMetaFeatures=T,
+                        largestOverlap=T
+      )
+      saveRDS(fc, file=fc_RDS)
+  } else {
+      print("Feature counts already tabulated...")
+  }
+}
+
+build_count_matrix <- function(fc_RDS) {
+  print("Building expression count matrix...")
+  fc <- readRDS(fc_RDS)
+  counts <- data.table(fc[[1]])
+  setnames(counts, unlist(tstrsplit(unlist(tstrsplit(colnames(counts), split=".mapped.")[2]), split=".rg.")[1]))
+  counts[, "GeneID" := fc[[2]][,"GeneID"]]
+  setcolorder(counts, c("GeneID",colnames(counts)[1:(ncol(counts)-1)]))
+  setnames(counts, "GeneID", "GC_Annotation_ID")
+  return(counts[])
+}
+
+# Build expression count matrix from feature counts
+get_featurecounts(bamFilePath, gtfFilePath, fc_RDS)
+fc <- readRDS(fc_RDS)
+lengths <- data.table("AnnotationID"=fc$annotation$GeneID, "Length"=fc$annotation$Length)
+if ( ! file.exists(gene_lengths_filename)) {
+    bam.files <- list.files(path=bamFilePath, pattern="*.bam$", full.names=T)
+  fwrite(lengths, file=gene_lengths_filename, quote=F, row.names=F, col.names=T, sep="\t")
+}
+
+counts <- build_count_matrix(fc_RDS)
+
+# Load conversion table #14087
+
+gc_to_fb <- fread('dm3.GC_to_FB.txt', header=TRUE, col.names=c("GC_Annotation_ID", "current_id", "FB_id", "gene_symbol"), key=c("GC_Annotation_ID"))
+
+setkey(counts, GC_Annotation_ID)
+
+# add FB gene IDs
+counts <- merge(counts, gc_to_fb)
+
+# Some (few) Annotation/Flybase IDs are repeated/mapping multiply, so we take the row
+# For each Annotation/Flybase ID which the greatest total mapped reads across individuals,
+# Removing 329 rows from the ~14,000 genes
+sampleCols <- c(colnames(counts)[grepl("4CB", colnames(counts))], colnames(counts)[grepl("23HR", colnames(counts))])
+
+counts[, totalMapped := apply(.SD, 1, sum), .SDcols=sampleCols]
+counts <- counts[counts[, .I[which.max(totalMapped)], by=FB_id]$V1]
+counts <- counts[counts[, .I[which.max(totalMapped)], by=GC_Annotation_ID]$V1]
+
+#  vector of sample ID (column) names for .SD operation
+
+setnames(counts, "FB_id", "GeneID")
+counts <- counts[, .SD, .SDcols=c("GeneID", sampleCols)]
+write.table(counts, file=expression_matrix_filename, quote=F, row.names=F, col.names=T, sep="\t")

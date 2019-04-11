@@ -1,2 +1,6 @@
 *.tar.*
 *.fastq.*
+*.config
+./03_map_rna/*Index
+./03_map_rna/mapped_reads
+./03_map_rna/reference_genome

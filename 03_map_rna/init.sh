@@ -20,6 +20,8 @@ wget -L https://virginia.box.com/shared/static/103b6l1djw5n9xui8enrvgv4litdicl9.
 # Combine separate parts & untar
 cat cDNA.tar.* > cDNA.tar && rm cDNA.tar.* && tar -xf cDNA.tar -d ./_rna/ && rm cDNA.tar
 
+# Generate list of filestems
+cd ./rna_reads/ && ls *.fastq.gz | cut -d "_" -f 1 | sort -u > ../filestems.txt && cd ..
 
 # Retrieve singularity image file
 module load singularity
@@ -36,4 +38,4 @@ gunzip -c dgrp2.snps.gz > ./SNPs/dgrp2.snps && rm dgrp2.snps.gz
 # Generate iMapSplice format gene annotation file
 zcat ../dm3.genepred.gz | tail -n +2 | cut -f 2- > dm3.genepred
 sed 's/$/\tINFO1\tINFO2/g' dm3.genepred > dm3.imapsplice.gaf
-bash ./pruneGAF.sh dm3.imapsplice.gaf
+bash ./pruneGAF.sh dm3.imapsplice.gaf && mv dm3.imapsplice.pruned.gaf ./geneAnnotationFile/

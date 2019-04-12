@@ -2,9 +2,9 @@
 
 source ./slurm.config
 
-#sbatch --array=1-1%10
+nSamples=$(wc -l filestems.txt | cut -d " " -f 1)
 
-sbatch --array=1-1%1 <<EOF
+sbatch --array=5-${nSamples}%5 <<EOF
 #!/usr/bin/env bash
 #SBATCH --nodes ${mappingNodesRequest}
 #SBATCH --ntasks-per-node ${mappingCoresRequest}
@@ -26,10 +26,10 @@ filestem=\$(sed -n \${SLURM_ARRAY_TASK_ID}p ${RNAreadFileStemList})
 
 echo "working on sample \${filestem}"
 
-gunzip -c ${RNAreadsDir}/\${filestem}_R1_001.fastq.gz > ${projectDirectory}/\${filestem}_1.fastq || \
+gunzip -c ${RNAreadsDir}/\${filestem}_R1_001.fastq.gz > ${projectDirectory}/.tmp/\${filestem}_1.fastq || \
 { echo "could not open ${RNAreadsDir}/\${filestem}_R1_001.fastq.gz"; exit 1; }
 
-gunzip -c ${RNAreadsDir}/\${filestem}_R2_001.fastq.gz > ${projectDirectory}/\${filestem}_2.fastq || \
+gunzip -c ${RNAreadsDir}/\${filestem}_R2_001.fastq.gz > ${projectDirectory}/.tmp/\${filestem}_2.fastq || \
 { echo "could not open ${RNAreadsDir}/\${filestem}_R1_001.fastq.gz"; exit 1; }
 
 
@@ -38,15 +38,22 @@ singularity exec ${projectDirectory}/iMapSplice.simg /iMapSplice/code/bin/iMapSp
 -Q ${projectDirectory}/SNPmerIndex/ \
 -G ${projectDirectory}/globalIndex/ \
 -L ${projectDirectory}/localIndex/ \
--1 ${projectDirectory}/\${filestem}_1.fastq \
--2 ${projectDirectory}/\${filestem}_2.fastq \
+-1 ${projectDirectory}/.tmp/\${filestem}_1.fastq \
+-2 ${projectDirectory}/.tmp/\${filestem}_2.fastq \
 -T ${mappingCoresRequest} \
--O ${projectDirectory}/\${filestem}/ || { echo "iMapSplice mapping failed"; exit 1; }
+-O ${projectDirectory}/.tmp/\${filestem}/ || { echo "iMapSplice mapping failed"; rm -rf  ${projectDirectory}/.tmp/\${filestem}/; rm ${projectDirectory}/.tmp/\${filestem}*.fastq; exit 1; }
 
 echo "cleaning up"
 
-rm ${projectDirectory}/\${filestem}_1.fastq
-rm ${projectDirectory}/\${filestem}_2.fastq
+# Move output to separate folder
+mv ${projectDirectory}/.tmp/\${filestem}/output.sam ${projectDirectory}/mapped_reads/\${filestem}.sam
+
+# Remove temporary output folder
+rm -rf ${projectDirectory}/.tmp/\${filestem}/
+
+# Remove temporary,unzipped reads
+rm ${projectDirectory}/.tmp/\${filestem}_1.fastq
+rm ${projectDirectory}/.tmp/\${filestem}_2.fastq
 
 echo "done"
 

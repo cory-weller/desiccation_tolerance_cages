@@ -4,20 +4,11 @@
 library(data.table)
 library(Rsubread)
 
-# Empty bam files were excluded (moved out of directory) prior to this step;
-bamFilePath <- "/scratch/caw5cv/iMapSplice/mapped/"
-gtfFilePath <- "dm3.gtf"
-
-# Name to store feature counts RDS file
-fc_RDS <- "dm3.featureCounts.RDS"
-gene_lengths_filename <- "dm3.genelength"
-
-# Name of expression matrix
-expression_matrix_filename <- "dm3.featureCountMatrix"
+source("DESeq.config")
 
 # get feature counts
-get_featurecounts <- function(bamFilePath, gtfFilePath, fc_RDS) {
-  if ( ! file.exists(fc_RDS)) {
+get_featurecounts <- function(bamFilePath, gtfFilePath, feature_counts_RDS) {
+  if ( ! file.exists(feature_counts_RDS)) {
       print("Tabulating feature counts...")
       bam.files <- list.files(path=bamFilePath, pattern="*.bam$", full.names=T)
       fc<-featureCounts(files=bam.files,
@@ -27,15 +18,15 @@ get_featurecounts <- function(bamFilePath, gtfFilePath, fc_RDS) {
                         useMetaFeatures=T,
                         largestOverlap=T
       )
-      saveRDS(fc, file=fc_RDS)
+      saveRDS(fc, file=feature_counts_RDS)
   } else {
       print("Feature counts already tabulated...")
   }
 }
 
-build_count_matrix <- function(fc_RDS) {
+build_count_matrix <- function(feature_counts_RDS) {
   print("Building expression count matrix...")
-  fc <- readRDS(fc_RDS)
+  fc <- readRDS(feature_counts_RDS)
   counts <- data.table(fc[[1]])
   setnames(counts, unlist(tstrsplit(unlist(tstrsplit(colnames(counts), split=".mapped.")[2]), split=".rg.")[1]))
   counts[, "GeneID" := fc[[2]][,"GeneID"]]
@@ -45,36 +36,87 @@ build_count_matrix <- function(fc_RDS) {
 }
 
 # Build expression count matrix from feature counts
-get_featurecounts(bamFilePath, gtfFilePath, fc_RDS)
-fc <- readRDS(fc_RDS)
+get_featurecounts(bamFilePath, gtfFilePath, feature_counts_RDS)
+
+fc <- readRDS(feature_counts_RDS)
+
+# Create file containing gene lengths from feature counts data, if it does not already exist
 lengths <- data.table("AnnotationID"=fc$annotation$GeneID, "Length"=fc$annotation$Length)
 if ( ! file.exists(gene_lengths_filename)) {
-    bam.files <- list.files(path=bamFilePath, pattern="*.bam$", full.names=T)
   fwrite(lengths, file=gene_lengths_filename, quote=F, row.names=F, col.names=T, sep="\t")
 }
 
-counts <- build_count_matrix(fc_RDS)
+# Get expression count matrix
+if( ! file.exists(expression_matrix_filename)) {
+  print("Building expression counts matrix")
+  # Generate read count matrix from feature counts object
+  counts <- build_count_matrix(feature_counts_RDS)
 
-# Load conversion table #14087
+  # Load conversion table #14087
 
-gc_to_fb <- fread('dm3.GC_to_FB.txt', header=TRUE, col.names=c("GC_Annotation_ID", "current_id", "FB_id", "gene_symbol"), key=c("GC_Annotation_ID"))
+  gc_to_fb <- fread(GC_to_FB_file, header=TRUE, col.names=c("GC_Annotation_ID", "current_id", "FB_id", "gene_symbol"), key=c("GC_Annotation_ID"))
 
-setkey(counts, GC_Annotation_ID)
+  setkey(counts, GC_Annotation_ID)
 
-# add FB gene IDs
-counts <- merge(counts, gc_to_fb)
+  # add FB gene IDs
+  counts <- merge(counts, gc_to_fb)
 
-# Some (few) Annotation/Flybase IDs are repeated/mapping multiply, so we take the row
-# For each Annotation/Flybase ID which the greatest total mapped reads across individuals,
-# Removing 329 rows from the ~14,000 genes
-sampleCols <- c(colnames(counts)[grepl("4CB", colnames(counts))], colnames(counts)[grepl("23HR", colnames(counts))])
+  # Some (few) Annotation/Flybase IDs are repeated/mapping multiply, so we take the row
+  # For each Annotation/Flybase ID which the greatest total mapped reads across individuals,
+  # Removing 329 rows from the ~14,000 genes
+  sampleCols <- c(colnames(counts)[grepl("4CB", colnames(counts))], colnames(counts)[grepl("23HR", colnames(counts))])
 
-counts[, totalMapped := apply(.SD, 1, sum), .SDcols=sampleCols]
-counts <- counts[counts[, .I[which.max(totalMapped)], by=FB_id]$V1]
-counts <- counts[counts[, .I[which.max(totalMapped)], by=GC_Annotation_ID]$V1]
+  counts[, totalMapped := apply(.SD, 1, sum), .SDcols=sampleCols]
+  counts <- counts[counts[, .I[which.max(totalMapped)], by=FB_id]$V1]
+  counts <- counts[counts[, .I[which.max(totalMapped)], by=GC_Annotation_ID]$V1]
 
-#  vector of sample ID (column) names for .SD operation
+  #  vector of sample ID (column) names for .SD operation
 
-setnames(counts, "FB_id", "GeneID")
-counts <- counts[, .SD, .SDcols=c("GeneID", sampleCols)]
-write.table(counts, file=expression_matrix_filename, quote=F, row.names=F, col.names=T, sep="\t")
+  setnames(counts, "FB_id", "GeneID")
+  counts <- counts[, .SD, .SDcols=c("GeneID", sampleCols)]
+  write.table(counts, file=expression_matrix_filename, quote=F, row.names=F, col.names=T, sep="\t")
+} else {
+  print("Loading expression counts matrix")
+  counts <- as.matrix(read.csv(expression_matrix_filename, sep="\t", row.names="GeneID", check.names=F))
+}
+
+# Run DESeq
+
+# Exclude any samples that have no feature counts across all genes
+bad_samples <- melt(as.data.table(counts), measure.vars=colnames(counts))[, sum(value), by=variable][V1==0][,variable]
+if(length(bad_samples) > 0) {
+    print("The following sample has 0 feature counts and will be excluded: ")
+    cat(paste0(bad_samples, sep="\n"))
+
+    counts <- counts[, !(colnames(counts) %in% bad_samples)]
+}
+
+# Structuring column data table
+coldata <- data.table(id=colnames(counts))
+coldata[, treatment := tstrsplit(id, split="[.]")[2]]
+coldata[, treatment := ifelse(treatment=="23HR", "post_starvation", "pre_starvation")]
+coldata[, cage := tstrsplit(id, split="[.]")[3]]
+coldata[, type := "paired-end"]
+coldata[, id := NULL]
+coldata <- as.data.frame(coldata)
+rownames(coldata) <- colnames(counts)
+
+
+library(DESeq2)
+
+dds <- DESeqDataSetFromMatrix(countData=counts, colData=coldata, design = ~cage+treatment)
+
+# Filter out rows (genes) with counts fewer than 50 across all samples
+keep <- rowSums(counts(dds)) >= 50
+dds <- dds[keep,]
+
+# DESeq with "poscounts" in place of ratio for dispersion estimates,
+# as we have zero-count values across all rows (genes)
+#dds <- DESeq(dds, sfType="poscounts")
+
+print("Running DESeq")
+
+dds <- DESeq(dds)
+
+print(paste("Saving DESeq object to", DESeq_filename))
+saveRDS(dds, file=DESeq_filename)

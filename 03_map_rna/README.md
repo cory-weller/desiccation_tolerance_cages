@@ -20,7 +20,7 @@ Run `bash ./iMapSplice_make_SNPmers.slurm` to generate the second requirement pr
 Map reads with `bash iMapSplice_map_reads.slurm`
 
 ## Convert from `.sam` to `.bam` format
-Run `bash sam_to_bam.slurm` to convert, add read groups, sort, and index `.bam` files.
+Run `bash sam_to_bam.slurm` to convert to `.bam` format.
 
 ## Get read counts
-Run `bash getReadCounts.slurm` to run the `ASEReadCounter` tool from `GATK` on each sample. Output is placed in `../04_expression_analysis/ASE`.
+Run `bash getReadCounts.slurm` to add read groups, sort and index `.bam` files, and run the `ASEReadCounter` tool from `GATK` on each sample. Output is placed in `../04_expression_analysis/ASE`.

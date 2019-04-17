@@ -1,0 +1,61 @@
+#!/usr/bin/env Rscript
+
+library(DESeq2)
+library(data.table)
+library(ggrepel)
+library(ggthemes)
+
+# load DESeq object, modeled ~ treatment + cage
+dds <- readRDS('./DE/DESeq.dds.RDS')
+
+
+# Check what the column name and variable names are in your dds object;
+# mine had a column of treatment, values of pre_starvation or post_starvation
+res <- results(dds, name="treatment_pre_starvation_vs_post_starvation")
+
+# DESeq lfcShrink function with treatment coefficients estimated using normal shrink method.
+if (! file.exists("./DE/dds.shrink.dat")) {
+  print("running lfcShrink on expression data")
+  res <- lfcShrink(dds, coef="treatment_pre_starvation_vs_post_starvation", type="normal")
+  res <- setDT(as.data.frame(res), keep.rownames=T)
+  setnames(res, "rn", "FlyBaseID")
+  write.table(res, "./DE/dds.shrink.dat", col.names=TRUE, row.names=FALSE, sep="\t", quote=FALSE)
+} else {
+  print("Loading post-shrink expression data")
+  res <- fread("./DE/dds.shrink.dat")
+}
+
+
+# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5985746/
+# Plot DE with P-values
+DE.plot <- ggplot(data=res, mapping=aes(x=log2FoldChange, y=-1*log10(padj))) + geom_point()
+DE.plot <- ggplot(data=res, mapping=aes(x=log2FoldChange, y=-1*log10(padj))) +
+geom_point() + geom_point(data=res[padj <= quantile(padj, 0.05) & ( log2FoldChange <= quantile(log2FoldChange, 0.025) | log2FoldChange >= quantile(log2FoldChange, 0.975))], color="red")
+
+# Expressed more in Starvation treatment
+res[padj <= quantile(padj, 0.05) & log2FoldChange <= quantile(log2FoldChange, 0.025)]
+
+# Expressed more in fed treatment
+res[padj <= quantile(padj, 0.05) & log2FoldChange >= quantile(log2FoldChange, 0.975)]
+
+# 65.7% of genes (8099/12333) are differentially expressed at a Bonferroni-corrected P-value
+
+
+# Transform prior to doing PCA
+transf <- vst(dds)
+pca <- plotPCA(transf, intgroup=c("treatment", "cage"), returnData=TRUE)
+
+# Extract % explained by PC1 and PC2 for label
+percentVar <- round(100 * attr(pca, "percentVar"))
+
+g <- ggplot(pca, aes(PC1, PC2, fill=treatment, shape=cage)) +
+  geom_point(size=2, alpha=1) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) +
+  theme_few(12) +
+  scale_shape_manual(values=c(21,24), labels=c("Cage 1", "Cage 2")) +
+  scale_fill_manual(values=c("black",NA), labels=c("Post-Starvation", "Peak Reproduction")) +
+  guides(fill = guide_legend(override.aes = list(shape = 22, size=3))) +
+  labs(fill="Treatment", shape="Replicate", title="PCA for Expression Matrices")
+
+ggsave(g, file="pca.png", width=15, height=15, units="cm")

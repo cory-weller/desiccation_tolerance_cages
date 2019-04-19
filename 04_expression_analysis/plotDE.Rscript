@@ -25,12 +25,18 @@ if (! file.exists("./DE/dds.shrink.dat")) {
   res <- fread("./DE/dds.shrink.dat")
 }
 
+res[, showLabel := ifelse(log2FoldChange>5 | (log2FoldChange<(-1.75)), TRUE, FALSE)]
+res[, plotLabel := ifelse(showLabel == FALSE, "", FlyBaseID)]
 
 # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5985746/
 # Plot DE with P-values
-DE.plot <- ggplot(data=res, mapping=aes(x=log2FoldChange, y=-1*log10(padj))) + geom_point()
-DE.plot <- ggplot(data=res, mapping=aes(x=log2FoldChange, y=-1*log10(padj))) +
-geom_point() + geom_point(data=res[padj <= quantile(padj, 0.05) & ( log2FoldChange <= quantile(log2FoldChange, 0.025) | log2FoldChange >= quantile(log2FoldChange, 0.975))], color="red")
+DE.plot.labeled <- ggplot(data=res, mapping=aes(x=-log2FoldChange, y=-1*log10(padj))) + geom_point() + labs(x="Log2 Fold Change in starvation treatment", y="-Log10(P)") + geom_text_repel( aes(label=plotLabel)) + xlim(-8,5) + ylim(0,250)
+
+DE.plot.unlabeled <- ggplot(data=res, mapping=aes(x=-log2FoldChange, y=-1*log10(padj))) + geom_point() + labs(x="Log2 Fold Change in starvation treatment", y="-Log10(P)") + geom_text_repel(data=res[(log2FoldChange>5 & padj < 1e-50) | (log2FoldChange<(-1.75) & padj < 1e-50)], aes(label=plotLabel)) + xlim(-8,5) + ylim(0,250)
+
+ggsave(DE.plot.labeled, file="DE.svg")
+
+# DE.plot <- ggplot(data=res, mapping=aes(x=log2FoldChange, y=-1*log10(padj))) + geom_point() + geom_point(data=res[padj <= quantile(padj, 0.05) & ( log2FoldChange <= quantile(log2FoldChange, 0.025) | log2FoldChange >= quantile(log2FoldChange, 0.975))], color="red")
 
 # Expressed more in Starvation treatment
 res[padj <= quantile(padj, 0.05) & log2FoldChange <= quantile(log2FoldChange, 0.025)]

@@ -1,0 +1,87 @@
+library(data.table)
+library(ggplot2)
+library(DESeq2)
+library(ggthemes)
+
+
+dds <- readRDS('../04_expression_analysis/DE/DESeq.dds.RDS')
+transf <- vst(dds)
+pca <- plotPCA(transf, intgroup=c("treatment", "cage"), returnData=TRUE)
+percentVar <- round(100 * attr(pca, "percentVar"))
+pca <- data.table(pca)
+pca[, IID := tstrsplit(name, split="reads.")[2]]
+
+
+pca[, IID2 := gsub("\\.", "-", IID), by = IID]
+pca[, IID := tstrsplit(IID2, split="_")[1]]
+setkey(pca, IID)
+
+dat <- fread('PRSice.best')
+dat[, grp := tstrsplit(FID, split="-")[1]]
+setkey(dat, IID)
+
+dat.all <- merge(pca,dat)
+
+
+# Plot PC1 vs PRS
+g1 <- ggplot(dat.all, aes(x=PC1, y=PRS, fill=treatment, shape=cage)) +
+  geom_point(size=2, alpha=1) +
+  xlab(paste0("Expression PC1: ",percentVar[1],"% variance")) +
+  ylab("Polygenic Risk Score") +
+  theme_few(16) +
+  scale_shape_manual(values=c(21,24), labels=c("Cage 1", "Cage 2")) +
+  scale_fill_manual(values=c("black",NA), labels=c("Post-Starvation", "Peak Reproduction")) +
+  guides(fill = guide_legend(override.aes = list(shape = 22, size=3))) +
+  labs(fill="Treatment", shape="Replicate", title="PCA for Expression Matrices") + facet_grid(.~cage) + coord_flip()
+
+g1 <- ggplot(dat.all, aes(x=PC1<0, y=PRS, fill=treatment, shape=cage)) +
+  geom_jitter(size=2, alpha=1) +
+  xlab(paste0("Expression PC1: ",percentVar[1],"% variance")) +
+  ylab("Polygenic Risk Score") +
+  theme_few(12) +
+  scale_shape_manual(values=c(21,24), labels=c("Cage 1", "Cage 2")) +
+  scale_fill_manual(values=c("black",NA), labels=c("Post-Starvation", "Peak Reproduction")) +
+  guides(fill = guide_legend(override.aes = list(shape = 22, size=3))) +
+  labs(fill="Treatment", shape="Replicate", title="PCA for Expression Matrices")
+
+
+g1 <- ggplot(dat.all, aes(x=PC1, y=PRS, fill=treatment, shape=cage)) +
+  geom_point(size=2, alpha=1) +
+  xlab(paste0("Expression PC1: ",percentVar[1],"% variance")) +
+  ylab("Polygenic Risk Score") +
+  theme_few(12) +
+  scale_shape_manual(values=c(21,24), labels=c("Cage 1", "Cage 2")) +
+  scale_fill_manual(values=c("black",NA), labels=c("Post-Starvation", "Peak Reproduction")) +
+  guides(fill = guide_legend(override.aes = list(shape = 22, size=3))) +
+  labs(fill="Treatment", shape="Replicate", title="PCA for Expression Matrices")
+
+g2 <- ggplot(dat.all, aes(x=PC2, y=PRS, fill=treatment, shape=cage)) +
+  geom_point(size=2, alpha=1) +
+  xlab(paste0("Expression PC2: ",percentVar[2],"% variance")) +
+  ylab("Polygenic Risk Score") +
+  theme_few(12) +
+  scale_shape_manual(values=c(21,24), labels=c("Cage 1", "Cage 2")) +
+  scale_fill_manual(values=c("black",NA), labels=c("Post-Starvation", "Peak Reproduction")) +
+  guides(fill = guide_legend(override.aes = list(shape = 22, size=3))) +
+  labs(fill="Treatment", shape="Replicate", title="PCA for Expression Matrices")
+
+
+g1 <- ggplot(dat.all, aes(x=PC1, y=PC2, color=PRS, shape=treatment)) +
+  geom_point(size=2, alpha=1) +
+  xlab(paste0("Expression PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("Expression PC2: ",percentVar[2],"% variance")) +
+  theme_few(12) +
+  labs(fill="Treatment", shape="Replicate", title="PCA for Expression Matrices") + facet_grid(.~cage)
+
+
+
+
+g <- ggplot(dat.all, aes(x=PC1, y=PC2, color=PRS, shape=treatment)) +
+  geom_point(size=2) +
+  xlab(paste0("Expression PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("Expression PC2: ",percentVar[2],"% variance")) +
+  theme_few(12) +
+  guides(fill = guide_legend(override.aes = list(shape = 22, size=3))) +
+  labs(fill="Treatment", shape="Replicate", title="PCA for Expression Matrices")
+
+ggsave(g, file="pca.png", width=15, height=15, units="cm")

@@ -58,7 +58,7 @@ g <- ggplot(pca, aes(PC1, PC2, fill=treatment, shape=cage)) +
   geom_point(size=2, alpha=1) +
   xlab(paste0("PC1: ",percentVar[1],"% variance")) +
   ylab(paste0("PC2: ",percentVar[2],"% variance")) +
-  theme_few(12) +
+  theme_few(16) +
   scale_shape_manual(values=c(21,24), labels=c("Cage 1", "Cage 2")) +
   scale_fill_manual(values=c("black",NA), labels=c("Post-Starvation", "Peak Reproduction")) +
   guides(fill = guide_legend(override.aes = list(shape = 22, size=3))) +

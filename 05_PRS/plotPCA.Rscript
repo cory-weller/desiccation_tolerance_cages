@@ -1,0 +1,127 @@
+Search for
+
+Vitelline Membrane
+
+FBgn0003979
+FBgn0003980
+FBgn0003983
+FBgn0014076
+FBgn0085362
+FBgn0086266
+
+
+
+Chorion
+
+FBgn0000286
+FBgn0000355
+FBgn0000356
+FBgn0000357
+FBgn0000358
+FBgn0000359
+FBgn0000360
+FBgn0000361
+FBgn0000427
+FBgn0000642
+FBgn0014464
+FBgn0014465
+FBgn0014466
+
+Trypsin
+
+
+
+library(DESeq2)
+library(data.table)
+library(ggrepel)
+library(ggthemes)
+
+# load DESeq object, modeled ~ treatment + cage
+dds <- readRDS('../04_expression_analysis/DE/DESeq.dds.RDS')
+
+# Transform prior to doing PCA
+transf <- vst(dds)
+
+
+
+
+reproductiveGenes <- c("FBgn0003979","FBgn0003980","FBgn0003983","FBgn0014076","FBgn0085362","FBgn0086266","FBgn0000286","FBgn0000355","FBgn0000356","FBgn0000357","FBgn0000358","FBgn0000359","FBgn0000360","FBgn0000361","FBgn0000427","FBgn0000642","FBgn0014464","FBgn0014465","FBgn0014466")
+# Subset genes if desired with assay(transf)[FBIDsToConsider,]
+pca.reproductive <- prcomp(t(assay(transf)[reproductiveGenes[reproductiveGenes %in% rownames(assay(transf))],]), center=TRUE, scale.=FALSE)
+reproductive <- data.table(pca.reproductive$x, keep.rownames=T)
+reproductive[, group := tstrsplit(rn, split="\\.")[2]]
+reproductive[, cage := tstrsplit(rn, split="\\.")[3]]
+reproductive[ group=="23HR", treatment := "Post-Starvation"]
+reproductive[ group=="4CB", treatment := "Pre-Starvation"]
+g1 <- ggplot(reproductive, mapping=aes(x=PC1, y=PC2, color=treatment, shape=cage)) + geom_point(size=2) + theme_few(16) + labs(x=paste(round(summary(pca.reproductive)$importance[[2]]*100, digits=2), "% Variance Explained"), y=paste(round(summary(pca.reproductive)$importance[[5]]*100, digits=2), "% Variance Explained"), title=paste("Vitelline & Chorion Proteins,", "N =", sum(reproductiveGenes %in% rownames(assay(transf))), "Genes"))
+ggsave(g1, file="reproductiveGenesPCA.png")
+
+# reproductive[, tmp1 := tstrsplit(rn, split="\\.")[2]]
+# reproductive[, tmp2 := tstrsplit(rn, split="\\.")[3]]
+# reproductive[, tmp3 := tstrsplit(rn, split="\\.")[4]]
+# reproductive[, tmp4 := tstrsplit(tmp3, split="_")[1]]
+# reproductive[, IID := paste(tmp1, tmp2, tmp4, sep="-")]
+#
+# reproductive.tomerge <- reproductive[, c("IID","PC1") ]
+# fam <- fread('../05_PRS/plinkFmt.fam')
+# merged <- merge(fam, reproductive.tomerge, by.x="V1", by.y="IID", all=T)
+# merged[, V6 := NULL]
+# setnames(merged, c("FID","IID","mSex","pSex","iSex","pheno"))
+# fwrite(merged, file="../05_PRS/plinkFmt.fam", sep=" ", quote=F, row.names=F, col.names=F, na="NA")
+
+
+ZhaoEtAleQTLGenes <- c("FBgn0039801","FBgn0263390","FBgn0031936","FBgn0027584","FBgn0032422","FBgn0043806","FBgn0259164","FBgn0034474","FBgn0090196","FBgn0196603","FBgn0208531","FBgn0037896","FBgn0002719","FBgn0020700","FBgn0031937","FBgn0039102","FBgn0064237","FBgn0032008","FBgn0085244","FBgn0038160","FBgn0029821","FBgn0266721","FBgn0034885","FBgn0040734","FBgn0038147","FBgn0051205","FBgn0033520","FBgn0036144","FBgn0036857","FBgn0034335","FBgn0039084","FBgn0031538","FBgn0027611")
+# Subset genes if desired with assay(transf)[FBIDsToConsider,]
+pca.ZhaoEtAleQTL <- prcomp(t(assay(transf)[ZhaoEtAleQTLGenes[ZhaoEtAleQTLGenes %in% rownames(assay(transf))],]), center=TRUE, scale.=FALSE)
+
+ZhaoEtAleQTL <- data.table(pca.ZhaoEtAleQTL$x, keep.rownames=T)
+ZhaoEtAleQTL[, group := tstrsplit(rn, split="\\.")[2]]
+ZhaoEtAleQTL[ group=="23HR", treatment := "Post-Starvation"]
+ZhaoEtAleQTL[ group=="4CB", treatment := "Pre-Starvation"]
+ZhaoEtAleQTL[, cage := tstrsplit(rn, split="\\.")[3]]
+g2 <- ggplot(ZhaoEtAleQTL, mapping=aes(x=PC1, y=PC2, color=treatment, shape=cage)) + geom_point(size=2) + theme_few(16) + labs(x=paste(round(summary(pca.ZhaoEtAleQTL)$importance[[2]]*100, digits=2), "% Variance Explained"), y=paste(round(summary(pca.ZhaoEtAleQTL)$importance[[5]]*100, digits=2), "% Variance Explained"), title=paste("Zhao et al Seasonal eQTL,", "N =", sum(ZhaoEtAleQTLGenes %in% rownames(assay(transf))), "Genes"))
+ggsave(g2, file="ZhaoEtAPCA.png")
+
+
+randomGenes <- sample(rownames(assay(transf)), size=29, replace=F)
+# Subset genes if desired with assay(transf)[FBIDsToConsider,]
+pca.random <- prcomp(t(assay(transf)[randomGenes[randomGenes %in% rownames(assay(transf))],]), center=TRUE, scale.=FALSE)
+random <- data.table(pca.random$x, keep.rownames=T)
+random[, group := tstrsplit(rn, split="\\.")[2]]
+random[ group=="23HR", treatment := "Post-Starvation"]
+random[ group=="4CB", treatment := "Pre-Starvation"]
+random[, cage := tstrsplit(rn, split="\\.")[3]]
+g3 <- ggplot(random, mapping=aes(x=PC1, y=PC2, color=treatment, shape=cage)) + geom_point(size=2) + theme_few(16) + labs(x=paste(round(summary(pca.random)$importance[[2]]*100, digits=2), "% Variance Explained"), y=paste(round(summary(pca.random)$importance[[5]]*100, digits=2), "% Variance Explained"), title=paste("Random set of genes,", "N =", sum(randomGenes %in% rownames(assay(transf))), "Genes"))
+ggsave(g3, file="randomGenesPCA.png")
+
+
+geneNames <- rownames(assay(transf))
+
+# Foreach to look at distribution of % explained?
+foreach(rep=1:1000, .combine="rbind") %do% {
+  foreach(geneSize=c(5,10,20,40,80,160), .combine="rbind") %do% {
+    randomGenes <- sample(rownames(assay(transf)), size=29, replace=F)
+  }
+}
+
+
+toKeep <- randomGenes
+
+
+
+ggsave(g, file="chorionVitellinePCA.png")
+
+pca <- plotPCA(, intgroup=c("treatment", "cage"), returnData=TRUE)
+
+# Extract % explained by PC1 and PC2 for label
+percentVar <- round(100 * attr(pca, "percentVar"))
+
+g <- ggplot(pca, aes(PC1, PC2, fill=treatment, shape=cage)) +
+  geom_point(size=2, alpha=1) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) +
+  theme_few(16) +
+  scale_shape_manual(values=c(21,24), labels=c("Cage 1", "Cage 2")) +
+  scale_fill_manual(values=c("black",NA), labels=c("Post-Starvation", "Peak Reproduction")) +
+  guides(fill = guide_legend(override.aes = list(shape = 22, size=3))) +
+  labs(fill="Treatment", shape="Replicate", title="PCA for Expression Matrices")

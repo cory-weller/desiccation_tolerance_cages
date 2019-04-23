@@ -171,8 +171,12 @@ merged <- merge(pheno, prs, by.x="V1", by.y="FID")
 
 
 logitModel <- glm(outcome ~ PRS, data=merged, family=binomial(link="logit"))
-predicted <- plogis(predict(logitModel, merged)
+predicted <- plogis(predict(logitModel, merged))
 merged[, predicted := predicted]
+PRSs <- merged$PRS
+
+merged[, percentile := ecdf(PRSs)(PRS), by=V1]
+ggplot(merged, aes(x=factor(outcome), y=percentile)) + geom_boxplot() + geom_jitter(alpha=0.3)
 
 g1 <- ggplot(merged, aes(x=PRS, y=V6, color=treatment, shape=cage)) + geom_point() + theme_few(16) + labs(x="Polygenic Risk Score", y="PC1 of Expression Data")
 g2 <- modelPrediction <- ggplot(merged[,c("PRS","predicted")], aes(x=PRS, y=predicted)) + geom_line() + theme_few(16) + labs(x="Polygenic Risk Score", y="Predicted Treatment")

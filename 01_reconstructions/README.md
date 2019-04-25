@@ -2,8 +2,10 @@
 
 Download reads using `download_reads.sh`
 
-Create list of filestems as `filestems.txt`
+Map reads using `mapReads.slurm`
 
-`cleanup.slurm` calculates what should be filtered out
+Run reconstructions with `reconstruct.slurm`
 
-`filter.slurm` does the actual filtering 
+Calculate which regions to be filtered / excluded from downstream analysis with `cleanup.slurm`
+
+Conduct the aforementioned filtering with `filter.slurm` to output filtered `.vcf` file

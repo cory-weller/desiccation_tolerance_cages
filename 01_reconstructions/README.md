@@ -2,6 +2,8 @@
 
 Download reads using `download_reads.sh`
 
+Retrieve supplemental executables/libraries with `init.sh`
+
 Map reads using `mapReads.slurm`
 
 Run reconstructions with `reconstruct.slurm`

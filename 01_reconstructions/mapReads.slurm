@@ -10,8 +10,6 @@
 window_step=100000
 window_width=100000
 
-inputSeqType=${1}
-
 topDirectory=$(pwd)
 
 readDirectory="./dna_reads"

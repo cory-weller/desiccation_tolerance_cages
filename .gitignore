@@ -4,6 +4,7 @@
 *.simg
 *.gaf
 *.genepred
+01_reconstructions/etc/*
 03_map_rna/filestems.txt
 03_map_rna/SNPmer/*
 03_map_rna/mapped_reads/*

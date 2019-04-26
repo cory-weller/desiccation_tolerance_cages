@@ -4,12 +4,7 @@ library(foreach)
 #some functions
 
 reconstruction_dir = "./estimate_genomes"
-filestem <- "23HR-2-383"
-chromosome <- "2L"
-
-filestems <- readLines("filestems.txt")
 chromosomes <- c("2L", "2R", "3L", "3R", "X")
-
 minimum_segment_length <- 1e6
 
 #imports haplotype path files and pulls individual id out of file name
@@ -90,12 +85,9 @@ summarizePathData <- function(path, filestem, chromosome) {
     return(summary[])
 }
 
-# path <- import_path(reconstruction_dir, filestem_extended, chromosome)
-# path <- clean_path(path, minimum_segment_length)
-# path <- collapseConsecutiveUnknowns(path)
-# path <- bridgeAcrossUnknown(path, minimum_segment_length)
-#
-# data_summary <- summarizePathData(path, filestem, chromosome)
+haps <- fread('zcat ./estimate_genomes/estimatePaths.tab.gz')
+setkey(haps, filestem, chromosome, start, stop)
+filestems <- unique(haps[,filestem])
 
 for(filestem in filestems) {
 
@@ -103,7 +95,7 @@ for(filestem in filestems) {
     filestem_extended <- paste(filestem, "_S", idNo, sep="")
 
     o <- foreach(chromosome = chromosomes, .errorhandling="remove") %do% {
-        path <- import_path(reconstruction_dir, filestem_extended, chromosome)
+        path <- haps[.(filestem, chromosome)]
         path <- clean_path(path, minimum_segment_length)
         path <- collapseConsecutiveUnknowns(path)
 

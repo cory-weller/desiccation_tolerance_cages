@@ -19,11 +19,8 @@ gatk=${topDirectory}/etc/GenomeAnalysisTK.jar
 picard=${topDirectory}/etc/picard.jar
 harp=${topDirectory}/etc/harp
 
-
-mkdir -p ${topDirectory}/Proj_Map_Reads/${seqType} && cd ${topDirectory}/Proj_Map_Reads/${seqType}
-
 # If no file of unique identifying IDs, create it
-if [[ ! -f seqIDs.txt ]]; then
+if [[ ! -f filestems.txt ]]; then
     ls ${readDirectory}/*.fastq.gz | xargs -n1 basename | cut -d "_" -f 1 | sort -u > filestems.txt
 fi
 

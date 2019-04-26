@@ -18,7 +18,7 @@ library(foreach)
 
 #some functions
 
-reconstruction_dir = "../estimate_genomes/"
+reconstruction_dir = "./estimate_genomes/"
 
 filestems <- readLines("filestems.txt")
 chromosomes <- c("2L", "2R", "3L", "3R", "X")

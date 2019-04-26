@@ -3,11 +3,11 @@ library(foreach)
 
 #some functions
 
-reconstruction_dir = "/scratch/caw5cv/IndoorData/Proj_Reconstruction/DNA"
+reconstruction_dir = "./estimate_genomes"
 filestem <- "23HR-2-383"
 chromosome <- "2L"
 
-filestems <- readLines("/scratch/caw5cv/IndoorData/Proj_Reconstruction/DNA/filestems.txt")
+filestems <- readLines("filestems.txt")
 chromosomes <- c("2L", "2R", "3L", "3R", "X")
 
 minimum_segment_length <- 1e6

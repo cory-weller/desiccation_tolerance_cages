@@ -1,8 +1,6 @@
 # Reconstructions of whole genomes from low coverage DNA sequencing
 
-Download reads using `download_reads.sh`
-
-Retrieve supplemental executables/libraries with `init.sh`
+Download reads and retrieve supplemental executables/libraries with `init.sh`
 
 Map reads using `mapReads.slurm`
 

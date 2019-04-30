@@ -23,6 +23,13 @@ cat cDNA.tar.* > cDNA.tar && rm cDNA.tar.* && tar -xf cDNA.tar -d ./_rna/ && rm 
 # Generate list of filestems
 cd ./rna_reads/ && ls *.fastq.gz | cut -d "_" -f 1 | sort -u > ../filestems.txt && cd ..
 
+# Move reference genome to proper folder, reformat, and split into separate files for eahc chromosome
+cp ../01_reconstructions/dm3.fasta ./reference_genome && \
+cd ./reference_genome && \
+sed -i 's/^>/>chr/g' dm3.fasta && \
+bash ../splitFastaFiles.sh dm3.fasta && \
+rm chr2LHet.fa chr2RHet.fa chr3LHet.fa chr3RHet.fa chrXHet.fa chrU.fa chrUextra.fa chrYHet.fa chr4.fa chrdmel_mitochondrion_genome.fa dm3.fasta
+
 # Retrieve singularity image file
 module load singularity
 singularity pull -n iMapSplice.simg shub://cory-weller/iMapSplice.simg

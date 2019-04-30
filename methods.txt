@@ -1,0 +1,31 @@
+Creating the Hybrid Swarm
+
+We generated a hybrid swarm mapping population through undirected mating of X inbred lines from the DGRP. To do so, we founded four replicate cages (6' x 6' x 6') with approximately N individuals for each of N DGRP lines. Populations expanded for four generations (?) on cornmeal-molasses medium in aluminum 9"x13" baking trays. Generations were discrete: we removed egg-laden media from the cages X hours after ecclosion, and only replaced egg-laden media after removal of the previous generation. We collected pre-starvation samples of the population during peak reproduction at the end of the 4th generation. All food was removed from the cages to initiate the starvation/desiccation treatment. Following 23 hours without food, we collected post-starvation samples of the population. Sampled individuals were stored <in which manner>.
+
+Molecular Work
+dna extraction, library prep, sequenced DNA and RNA on X platform
+
+Genome Reconstructions
+We performed reconstructions of whole genomes from low DNA sequencing data as described in Chapter 2. Briefly, we mapped low-coverage DNA reads using the bwa algorithm. We then used HARP (cite) to estimate the most-likely-ancestors for any individual chromosome, and performed haplotype reconstruction in RABBIT with this reduced set of ancestor haplotypes. We then performed additional quality control to the estimated genome reconstructions. Because our hybrid swarm populations have undergone 4 rounds of meiosis, short haplotype block (1 megabase or shorter) should be rare, and estimates showing short segments are most likely to be errors in haplotype estimation. To reduce the effect of these reconstruction errors, we bridged across short haplotype segments flanked on both ends with the same haplotype identity, replacing the short segment's identity with that of its neighbors. We then collapsed consecutive haplotype blocks with shared identity, to reflect contiguous haplotype blocks where no recombination was estimated. Lastly, we masked any remaining short haplotype blocks as NAs. Using the quality-controlled haplotype maps, we extracted corresponding genotype information from a dgrp2 VCF file using tabix (cite), pasting each reconstructed genomes (columns) into a single VCF file.
+
+We calculated the extent of missing data within individul reconstructed genomes as the proportion of variable sites without diploid genotype calls (either site marked as "." in VCF file). Similarly, to assess whether certain genomic regions presented systematic difficulties with reconstruction, we calculated the proportion of sites without diploid genotype calls in sliding windows across each chromosome (100 kb window size, 25 kb step size).
+
+GWAS
+GENESIS
+LOCO genetic relatedness matrix (GRM).
+Permutations.
+Cage as covariate.
+
+
+Mapping RNA reads
+We evaluated reference allele mapping bias and the number of reads mapped for RSubread (cite) and iMapSplice (cite) read aligners. These aligners require different formats of gene annotation files--GTF format (cite) for RSubread and UCSC Gene Prediction format (cite) for iMapSplice. To ensure differences in mapping was not due to differently-sourced annotation files, we opted to start with a Gene Prediction table from UCSC Table Browser and generate its corresponding GTF file.
+
+We acquired our gene prediction table from UCSC table browser with the following settings:
+<settings>
+In addition, a copy of our starting gene prediction table is contained within our GitHub repository. From this gene prediction table, we built a GTF file using the UCSC genePredToGtf tool (cite). Because this tool did not collapse gene IDs across various isoforms of single genes, we collapsed gene IDs using a custom script.
+
+We mapped RNA reads to the dm3 reference genome (version 57?), both for RSubread with our GTF file, and for iMapSplice using our gene prediction table, plus a file containing biallelic SNPs in the DGRP `dgrp2.snps`. To tabulate reference and alternate read counts, we used the ASEReadCounter tool from the GenomeAnalysisToolKit (cite). To count total mapped reads per chromosome, we used the idxstats tool from samtools (cite).
+
+Differential Expression
+
+Allele-specific Expression

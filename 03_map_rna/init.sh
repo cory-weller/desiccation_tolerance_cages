@@ -28,7 +28,8 @@ cp ../01_reconstructions/dm3.fasta ./reference_genome && \
 cd ./reference_genome && \
 sed -i 's/^>/>chr/g' dm3.fasta && \
 bash ../splitFastaFiles.sh dm3.fasta && \
-rm chr2LHet.fa chr2RHet.fa chr3LHet.fa chr3RHet.fa chrXHet.fa chrU.fa chrUextra.fa chrYHet.fa chr4.fa chrdmel_mitochondrion_genome.fa dm3.fasta
+rm chr2LHet.fa chr2RHet.fa chr3LHet.fa chr3RHet.fa chrXHet.fa chrU.fa chrUextra.fa chrYHet.fa chr4.fa chrdmel_mitochondrion_genome.fa dm3.fasta && \
+cd ..
 
 # Retrieve singularity image file
 module load singularity
@@ -42,8 +43,8 @@ cat ./reference_genome/chr2L.fa ./reference_genome/chr2R.fa ./reference_genome/c
 module load samtools
 module load gatk
 if [ ! -f ./SNPs/dm3.fa.fai ]; then
-  gatk CreateSequenceDictionary --REFERENCE ./03_map_rna/SNPs/dm3.fa
-  samtools faidx ./03_map_rna/SNPs/dm3.fa
+  gatk CreateSequenceDictionary --REFERENCE ./SNPs/dm3.fa
+  samtools faidx ./SNPs/dm3.fa
 fi
 
 # Retrieve dgrp SNP table (for iMapSplice mapping)
@@ -52,9 +53,9 @@ gunzip -c dgrp2.snps.gz > ./SNPs/dgrp2.snps && rm dgrp2.snps.gz
 
 # Retrieve dgrp variant table (for ASEReadCounter)
 wget -O dm3.variants.gz -L https://virginia.box.com/shared/static/tbqyp2j8e5nds14s78hhrcg7bdpauffc.gz && \
-gunzip -c dm3.variants.gz > ./SNPs/dm3.variants && rm dm3.variants.gz
-if [ ! -f ../03_map_rna/SNPs/dm3.variants.idx ]; then
-  gatk IndexFeatureFile --feature-file ./03_map_rna/SNPs/dm3.variants
+gunzip -c dm3.variants.gz | sed 's/FORMAT$/FORMAT\thet/g'  | sed 's/GT$/GT\t0\/1/g' > ./SNPs/dm3.variants && rm dm3.variants.gz
+if [ ! -f ./SNPs/dm3.variants.idx ]; then
+  gatk IndexFeatureFile --feature-file .//SNPs/dm3.variants
 fi
 
 # Generate iMapSplice format gene annotation file
@@ -63,10 +64,19 @@ sed 's/$/\tINFO1\tINFO2/g' dm3.genepred > dm3.imapsplice.gaf
 bash ./pruneGAF.sh dm3.imapsplice.gaf && mv dm3.imapsplice.pruned.gaf ./geneAnnotationFile/
 
 # Build Rsubread index
-sbatch
+sbatch  <<EOF
+#!/usr/bin/env bash
+#SBATCH --nodes 1
+#SBATCH --ntasks-per-node 1
+#SBATCH --mem 20G
+#SBATCH --time 0-00:10:00
+#SBATCH --partition largemem
+#SBATCH --account berglandlab
+
+cd ./SNPs/
 module load R/3.5.1
 Rscript - <<EOF
 #!/usr/bin/env Rscript
 library(Rsubread)
-buildindex(basename="dm3_index", reference="./SNPs/dm3.fa")
+buildindex(basename="dm3_index", reference="dm3.fa")
 EOF

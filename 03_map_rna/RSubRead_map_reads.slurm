@@ -8,9 +8,26 @@
 #SBATCH --mail-type ALL
 #SBATCH --mail-user caw5cv
 
-cd ${projectDirectory}
-
 Rscript - <<EOF
+#!/usr/bin/env Rscript
 
+library(Rsubread)
+
+# Index pre-built during init.sh
+# buildindex(basename="dm3_index", reference="./SNPs/dm3.fa")
+
+args <- commandArgs(trailingOnly=TRUE)
+file_id <- args[1]
+
+readDir <- "./rna_reads/"
+indexLoc <- "./SNPs/dm3_index"
+
+filestems <- readLines('filestems.txt')
+
+for(filestem in filestems) {
+  read1 <- paste("./rna_reads/", filestem, "_R1_001.fastq.gz", sep="")
+  read2 <- paste("./rna_reads/", filestem, "_R2_001.fastq.gz", sep="")
+  align(index=indexLoc, readfile1=read1, readfile2=read2, input_format="gzFASTQ", output_format="BAM", output_file=paste(file_id, ".bam", sep=""), nthreads=5)
+}
 
 EOF

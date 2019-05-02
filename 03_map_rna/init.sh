@@ -57,10 +57,16 @@ if [ ! -f ../03_map_rna/SNPs/dm3.variants.idx ]; then
   gatk IndexFeatureFile --feature-file ./03_map_rna/SNPs/dm3.variants
 fi
 
-
-
-
 # Generate iMapSplice format gene annotation file
 zcat ../dm3.genepred.gz | tail -n +2 | cut -f 2- > dm3.genepred
 sed 's/$/\tINFO1\tINFO2/g' dm3.genepred > dm3.imapsplice.gaf
 bash ./pruneGAF.sh dm3.imapsplice.gaf && mv dm3.imapsplice.pruned.gaf ./geneAnnotationFile/
+
+# Build Rsubread index
+sbatch
+module load R/3.5.1
+Rscript - <<EOF
+#!/usr/bin/env Rscript
+library(Rsubread)
+buildindex(basename="dm3_index", reference="./SNPs/dm3.fa")
+EOF

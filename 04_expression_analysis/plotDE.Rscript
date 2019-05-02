@@ -46,6 +46,10 @@ res[padj <= quantile(padj, 0.05) & log2FoldChange >= quantile(log2FoldChange, 0.
 
 # 65.7% of genes (8099/12333) are differentially expressed at a Bonferroni-corrected P-value
 
+# to get PCA on subset of genes, subset the dds object
+# geneIDs <- rownames(assay(dds))
+# subsetGenes <- sample(geneIDs, size=20, replace=FALSE)
+# subset_dds <- assay(dds)[subsetGenes,]
 
 # Transform prior to doing PCA
 transf <- vst(dds)

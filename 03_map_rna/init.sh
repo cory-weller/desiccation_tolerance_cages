@@ -35,8 +35,16 @@ module load singularity
 singularity pull -n iMapSplice.simg shub://cory-weller/iMapSplice.simg
 
 # Retrieve reference genome files
-wget -O refgenome.zip -L https://virginia.box.com/shared/static/4pwlmpjjzzhihm8gb4h60p5cus590x7a.zip && \
-unzip refgenome.zip -d ./reference_genome/ && rm refgenome.zip && cat ./reference_genome/*.fa > ./SNPs/dm3.fa
+# wget -O refgenome.zip -L https://virginia.box.com/shared/static/4pwlmpjjzzhihm8gb4h60p5cus590x7a.zip && \
+# unzip refgenome.zip -d ./reference_genome/ && rm refgenome.zip && cat ./reference_genome/*.fa > ./SNPs/dm3.fa
+# Above code retrieves the pre-made version form UVA box; below version recreates it from the files already extant within directory
+cat ./reference_genome/chr2L.fa ./reference_genome/chr2R.fa ./reference_genome/chr3L.fa ./reference_genome/chr3R.fa ./reference_genome/chrX.fa > ./SNPs/dm3.fa
+module load samtools
+module load gatk
+if [ ! -f ./SNPs/dm3.fa.fai ]; then
+  gatk CreateSequenceDictionary --REFERENCE ./03_map_rna/SNPs/dm3.fa
+  samtools faidx ./03_map_rna/SNPs/dm3.fa
+fi
 
 # Retrieve dgrp SNP table (for iMapSplice mapping)
 wget -O dgrp2.snps.gz -L https://virginia.box.com/shared/static/5ia84k3fc531e5f0rzxmxrs8ayc5zwre.gz && \
@@ -45,6 +53,12 @@ gunzip -c dgrp2.snps.gz > ./SNPs/dgrp2.snps && rm dgrp2.snps.gz
 # Retrieve dgrp variant table (for ASEReadCounter)
 wget -O dm3.variants.gz -L https://virginia.box.com/shared/static/tbqyp2j8e5nds14s78hhrcg7bdpauffc.gz && \
 gunzip -c dm3.variants.gz > ./SNPs/dm3.variants && rm dm3.variants.gz
+if [ ! -f ../03_map_rna/SNPs/dm3.variants.idx ]; then
+  gatk IndexFeatureFile --feature-file ./03_map_rna/SNPs/dm3.variants
+fi
+
+
+
 
 # Generate iMapSplice format gene annotation file
 zcat ../dm3.genepred.gz | tail -n +2 | cut -f 2- > dm3.genepred

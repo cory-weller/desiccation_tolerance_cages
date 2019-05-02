@@ -7,7 +7,8 @@
 01_reconstructions/etc/*
 03_map_rna/filestems.txt
 03_map_rna/SNPmer/*
-03_map_rna/mapped_reads/*
+03_map_rna/mapped_reads_iMapSplice/*
+03_map_rna/mapped_reads_RSubRead/*
 03_map_rna/reference_genome/*
 03_map_rna/globalIndex/*
 03_map_rna/localIndex/*

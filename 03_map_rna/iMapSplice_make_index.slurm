@@ -16,10 +16,10 @@ singularity exec iMapSplice.simg /iMapSplice/code/bin/build2ndLevelIndex ./globa
 
 # Part 2: generate SNP-mers
 singularity exec iMapSplice.simg /iMapSplice/code/bin/getSNPmer-unphased \
-"./globalIndex/ \
-"./geneAnnotationFile/dm3.imapsplice.pruned.gaf \
-"./SNPs/dgrp2.snps \
-"./SNPmer/ \
+./globalIndex/ \
+./geneAnnotationFile/dm3.imapsplice.pruned.gaf \
+./SNPs/dgrp2.snps \
+./SNPmer/ \
 201 \
 5 || { echo "getSNPmer-unphased failed"; exit 1; }
 

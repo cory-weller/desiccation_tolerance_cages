@@ -14,7 +14,7 @@ type=${1}
 module load samtools/1.9
 module load gatk
 
-cd mapped_reads_/${type}
+cd mapped_reads/${type}
 
 while read filename; do
   filestem=${filename%.[sb]am}
@@ -36,6 +36,7 @@ while read filename; do
   --RGSM=${filestem} && rm ${filename%.sam}.bam ${filename%.sam}.bam
 
   samtools sort ${filestem}.rg.bam > ${filestem}.rg.sort.bam && \
-  samtools index ${filestem}.rg.sort.bam
+  samtools index ${filestem}.rg.sort.bam && \
+  rm ${filestem}.bam ${filestem}.rg.bam ${filestem}.sort.bam ${filestem}.sort.bam.bai
 
 done < <(ls *.[sb]am)

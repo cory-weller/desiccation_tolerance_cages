@@ -67,6 +67,9 @@ function addReadGroups {
 
 export -f addReadGroups
 
+module load samtools
+module load gatk
+
 cd $tmpdir && rm -rf *.fastq phase1_output phase2_output
 
 mv output.sam ${filestem}.sam

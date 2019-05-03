@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --nodes 1
-#SBATCH --ntasks-per-node 1
-#SBATCH --mem 8G
+#SBATCH --ntasks-per-node 5
+#SBATCH --mem 40G
 #SBATCH --time 0-24:00:00
 #SBATCH --partition standard
 #SBATCH --account berglandlab
@@ -16,7 +16,8 @@ module load gatk
 
 cd mapped_reads/${type}
 
-while read filename; do
+function addReadGroups {
+  filename=${1}
   filestem=${filename%.[sb]am}
   # If .sam (instead of .bam), convert to .bam
   if [ ${filename: -4} == ".sam" ]; then
@@ -38,5 +39,9 @@ while read filename; do
   samtools sort ${filestem}.rg.bam > ${filestem}.rg.sort.bam && \
   samtools index ${filestem}.rg.sort.bam && \
   rm ${filestem}.bam ${filestem}.rg.bam ${filestem}.sort.bam ${filestem}.sort.bam.bai
+}
 
-done < <(ls *.[sb]am)
+export -f addReadGroups
+
+
+parallel -j 5 addReadGroups ::: ls *.[sb]am

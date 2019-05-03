@@ -1,0 +1,114 @@
+library(data.table)
+library(foreach)
+
+#some functions
+
+reconstruction_dir = "./estimate_genomes"
+chromosomes <- c("2L", "2R", "3L", "3R", "X")
+minimum_segment_length <- 1e6
+
+#imports haplotype path files and pulls individual id out of file name
+import_vcf <- function(reconstruction_dir, filestem, chromosome){
+    command <- paste(reconstruction_dir, "/", filestem, ".", chromosome, ".estimate.vcf", sep="")
+    fread(command, header=FALSE, col.names=c("CHROM","POS", "GENO"))
+}
+
+import_path <- function(reconstruction_dir, filestem_extended, chromosome){
+    command <- paste("unzip -p ", reconstruction_dir, "/", filestem_extended, ".zip ", filestem_extended, ".", chromosome, ".estimate.haps", sep="")
+    fread(cmd=command, header=TRUE)
+}
+
+clean_path <- function(path, minimum_segment_length) {
+    hap1 <- path[,c("chromosome","start","stop","par1")]
+    setnames(hap1, "par1", "par")
+
+    hap2 <- path[,c("chromosome","start","stop","par2")]
+    setnames(hap2, "par2", "par")
+
+    # concatenate consecutive runs of the same haplotype
+    hap1[,id := rleid(par)]
+    hap2[,id := rleid(par)]
+
+    hap1key <- hap1[,c("par","id")]
+    hap1key <- hap1key[!duplicated(hap1key)]
+    hap2key <- hap2[,c("par","id")]
+    hap2key <- hap2key[!duplicated(hap2key)]
+
+    hap1.merge <- merge(hap1[, list("start"=min(start), "stop"=max(stop)), by=id], hap1key, by="id")
+    hap1.merge[, haplotype := 1]
+    hap2.merge <- merge(hap2[, list("start"=min(start), "stop"=max(stop)), by=id], hap2key, by="id")
+    hap2.merge[, haplotype := 2]
+    haps <- rbindlist(list(hap1.merge, hap2.merge))
+    haps[, id := NULL]
+
+    # remove identity from chunks that are now less than 1MB in length
+    haps[, length := 1 + (stop - start)]
+    haps[length < minimum_segment_length, par := "unknown"][]
+    return(haps[is.finite(start) & is.finite(stop)])
+}
+
+collapseConsecutiveUnknowns <- function(path) {
+    # collaps consecutive unknowns into one long unknown chunk
+    path[, id := rleid(haplotype, par)]
+    pathkey <- path[,c("haplotype","id","par")]
+    pathkey <- pathkey[!duplicated(pathkey)]
+    path.merge <- merge(path[, list("start"=min(start), "stop"=max(stop)), by=id], pathkey, by="id")
+    return(path.merge[is.finite(start) & is.finite(stop)])
+}
+
+bridgeAcrossUnknown <- function(path, minimum_segment_length, filestem, chromosome) {
+    # bridge across short chunks (< 1 MB) that have same parent on both ends
+    path[, parLeft := shift(par, 1L, type="lag"), by=haplotype]
+    path[, parRight := shift(par, 1L, type="lead"), by=haplotype]
+    path[, length := 1 + (stop - start) ]
+    path[, segment_class := "NA"]
+    path[length >= minimum_segment_length & par != "unknown", segment_class := "original"]
+    path[length >= minimum_segment_length & par == "unknown", segment_class := "multi_short_filtered"]
+    path[(is.na(parLeft) | is.na(parRight)) & par == "unknown", segment_class := "end_filtered"]
+    path[length < minimum_segment_length & par=="unknown" & parLeft == parRight, par := parLeft]
+    path[length < minimum_segment_length & par=="unknown" & parLeft == parRight, segment_class := "bridged"]
+    path[length < minimum_segment_length & par=="unknown" & parLeft != parRight, segment_class := "filtered"]
+    path[, "ind_id" := filestem]
+    path[, "chromosome" := chromosome]
+    return(path[, c("start","stop","haplotype", "segment_class","par","length", "ind_id", "chromosome")])
+}
+
+summarizePathData <- function(path, filestem, chromosome) {
+    summary <- path[, list( "good_length" = sum(length[which(par != "unknown")]),
+                            "total_length" = sum(length),
+                            "N_recombination" = sum(par != "unkown"),
+                            "N_good_founders_on_haplotype" = sum(unique(par) != "unknown")),
+                        by=haplotype]
+    summary[, pct_good_length := good_length / total_length ]
+    summary[, "ind_id" := filestem]
+    summary[, "chromosome" := chromosome]
+    return(summary[])
+}
+
+haps <- fread('zcat ./estimate_genomes/estimatePaths.tab.gz')
+setkey(haps, filestem, chromosome, start, stop)
+filestems <- unique(haps[,filestem])
+
+for(filestem in filestems) {
+
+    idNo <- unlist(strsplit(filestem, "-"))[3]
+    filestem_extended <- paste(filestem, "_S", idNo, sep="")
+
+    o <- foreach(chromosome = chromosomes, .errorhandling="remove") %do% {
+        path <- haps[.(filestem, chromosome)]
+        path <- clean_path(path, minimum_segment_length)
+        path <- collapseConsecutiveUnknowns(path)
+
+        path <- bridgeAcrossUnknown(path, minimum_segment_length, filestem, chromosome)
+        data_summary <- summarizePathData(path, filestem, chromosome)
+        return(list(path, data_summary))
+    }
+
+    paths <- rbindlist(lapply(o, `[[`, 1))
+    summaries <- rbindlist(lapply(o, `[[`, 2))
+    write.table(paths, file=paste(filestem, ".paths.filter", sep=""), row.names=FALSE, col.names=TRUE, sep="\t", quote=FALSE)
+    write.table(summaries, file=paste(filestem, ".paths.stats", sep=""), row.names=FALSE, col.names=TRUE, sep="\t", quote=FALSE)
+}
+
+
+# to filter

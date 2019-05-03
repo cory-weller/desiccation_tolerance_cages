@@ -1,0 +1,17 @@
+library(data.table)
+library(foreach)
+
+filenames <- list.files(pattern="*.zip")
+
+i <- 0
+
+out <- foreach(filename=filenames, .combine="rbind") %do% {
+  i <- i + 1
+  print(i)
+  filestem <- unlist(strsplit(filename, "[.]"))[1]
+  foreach(chromosome = c("2L", "2R", "3L", "3R", "X"), .combine="rbind", .errorhandling="remove") %do% {
+    command <- paste("unzip -p ", filestem, ".zip ", filestem, ".", chromosome, ".estimate.haps", sep="")
+    dat <- fread(cmd=command)
+    dat[, "filestem" := filestem]
+  }
+}

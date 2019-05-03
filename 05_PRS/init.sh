@@ -94,12 +94,12 @@ setnames(dat.all, "POS", "BP")
 setnames(dat.all, "SNP_ID", "SNP")
 
 # Write output, excluding X chromosome
-fwrite(dat.all[, c("SNP","CHR","BP","A1","A2","P","OR")][CHR != "5"], file="BASE.assoc", sep=" ", quote=F, col.names=T, row.names=F)
+fwrite(dat.all[, c("SNP","CHR","BP","A1","A2","P","OR","Z")][CHR != "5"], file="BASE.assoc", sep=" ", quote=F, col.names=T, row.names=F)
 EOF
 
 #cat <(egrep '^4CB' plinkFmt.fam | cut -f 1 | awk '{OFS="\t";}{print $1,"1"}') <(egrep '^23HR' plinkFmt.fam | cut -f 1 | awk '{OFS="\t";}{print $1,"2"}') | sort | awk '{print $1,$1,$2}' > PRSice.phenos
 
-Rscript PRSice.R --dir . \
+Rscript ./PRSice.R --dir . \
     --prsice ./PRSice_linux \
     --base BASE.assoc \
     --target plinkFmt \
@@ -108,4 +108,79 @@ Rscript PRSice.R --dir . \
     --binary-target T \
     --clump-kb 100 \
     --cov-file PCS.cov \
-    --cov-col @PC[1-20]
+    --cov-col @PC[1-20] \
+    --print-snp
+
+# Subset only RNA reads individuals
+
+egrep -v "NA$" plinkFmt.fam |cut -d " " -f 1 > samplefile
+
+# Add the following to the header:
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##contig=<ID=1>
+##contig=<ID=2>
+##contig=<ID=3>
+##contig=<ID=4>
+##contig=<ID=5>
+#
+sed -i 's/NA/./g' convertedChrs.vcf
+
+module load bcftools
+module load samtools
+
+bgzip convertedChrs.vcf
+tabix -p vcf convertedChrs.vcf.gz
+
+
+
+
+bcftools view -S samplefile convertedChrs.vcf.gz > subset.vcf
+
+./plink --vcf subset.vcf --make-bed --allow-extra-chr --vcf-half-call missing --out subset
+
+
+Rscript ./PRSice.R --dir . \
+    --prsice ./PRSice_linux \
+    --base BASE.assoc \
+    --target subset \
+    --stat Z \
+    --binary-target F \
+    --beta \
+    --thread 4 \
+    --clump-kb 100 \
+    --print-snp
+
+Rscript - <<EOF
+#!/usr/bin/env Rscript
+library(ggplot2)
+library(ggthemes)
+
+# Load in output of PRSice
+prs <- fread('PRSice.best')
+prs[, group := tstrsplit(FID, split="-")[1]]
+prs[, cage := tstrsplit(FID, split="-")[2]]
+prs[, treatment := ifelse(group=="4CB", "Pre-starvation", "Post-starvation")]
+prs[, outcome := ifelse(treatment=="Pre-starvation", 0, 1)]
+
+# Load in expression phenotypes
+pheno <- fread('subset.fam')
+
+merged <- merge(pheno, prs, by.x="V1", by.y="FID")
+
+
+
+
+logitModel <- glm(outcome ~ PRS, data=merged, family=binomial(link="logit"))
+predicted <- plogis(predict(logitModel, merged))
+merged[, predicted := predicted]
+PRSs <- merged$PRS
+
+merged[, percentile := ecdf(PRSs)(PRS), by=V1]
+ggplot(merged, aes(x=factor(outcome), y=percentile)) + geom_boxplot() + geom_jitter(alpha=0.3)
+
+g1 <- ggplot(merged, aes(x=PRS, y=V6, color=treatment, shape=cage)) + geom_point() + theme_few(16) + labs(x="Polygenic Risk Score", y="PC1 of Expression Data")
+g2 <- modelPrediction <- ggplot(merged[,c("PRS","predicted")], aes(x=PRS, y=predicted)) + geom_line() + theme_few(16) + labs(x="Polygenic Risk Score", y="Predicted Treatment")
+ggsave(g1, file="PRS.svg")
+ggsave(g2, file="model.svg")
+
+EOF

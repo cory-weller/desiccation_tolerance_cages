@@ -49,6 +49,8 @@ res[padj <= quantile(padj, 0.05) & log2FoldChange >= quantile(log2FoldChange, 0.
 
 # Transform prior to doing PCA
 transf <- vst(dds)
+
+# Subset genes if desired with assay(transf)[FBIDsToConsider,]
 pca <- plotPCA(transf, intgroup=c("treatment", "cage"), returnData=TRUE)
 
 # Extract % explained by PC1 and PC2 for label

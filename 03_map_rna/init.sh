@@ -23,13 +23,29 @@ cat cDNA.tar.* > cDNA.tar && rm cDNA.tar.* && tar -xf cDNA.tar -d ./_rna/ && rm 
 # Generate list of filestems
 cd ./rna_reads/ && ls *.fastq.gz | cut -d "_" -f 1 | sort -u > ../filestems.txt && cd ..
 
+# Move reference genome to proper folder, reformat, and split into separate files for eahc chromosome
+cp ../01_reconstructions/dm3.fasta ./reference_genome && \
+cd ./reference_genome && \
+sed -i 's/^>/>chr/g' dm3.fasta && \
+bash ../splitFastaFiles.sh dm3.fasta && \
+rm chr2LHet.fa chr2RHet.fa chr3LHet.fa chr3RHet.fa chrXHet.fa chrU.fa chrUextra.fa chrYHet.fa chr4.fa chrdmel_mitochondrion_genome.fa dm3.fasta && \
+cd ..
+
 # Retrieve singularity image file
 module load singularity
 singularity pull -n iMapSplice.simg shub://cory-weller/iMapSplice.simg
 
 # Retrieve reference genome files
-wget -O refgenome.zip -L https://virginia.box.com/shared/static/4pwlmpjjzzhihm8gb4h60p5cus590x7a.zip && \
-unzip refgenome.zip -d ./reference_genome/ && rm refgenome.zip && cat ./reference_genome/*.fa > ./SNPs/dm3.fa
+# wget -O refgenome.zip -L https://virginia.box.com/shared/static/4pwlmpjjzzhihm8gb4h60p5cus590x7a.zip && \
+# unzip refgenome.zip -d ./reference_genome/ && rm refgenome.zip && cat ./reference_genome/*.fa > ./SNPs/dm3.fa
+# Above code retrieves the pre-made version form UVA box; below version recreates it from the files already extant within directory
+cat ./reference_genome/chr2L.fa ./reference_genome/chr2R.fa ./reference_genome/chr3L.fa ./reference_genome/chr3R.fa ./reference_genome/chrX.fa > ./SNPs/dm3.fa
+module load samtools
+module load gatk
+if [ ! -f ./SNPs/dm3.fa.fai ]; then
+  gatk CreateSequenceDictionary --REFERENCE ./SNPs/dm3.fa
+  samtools faidx ./SNPs/dm3.fa
+fi
 
 # Retrieve dgrp SNP table (for iMapSplice mapping)
 wget -O dgrp2.snps.gz -L https://virginia.box.com/shared/static/5ia84k3fc531e5f0rzxmxrs8ayc5zwre.gz && \
@@ -37,9 +53,30 @@ gunzip -c dgrp2.snps.gz > ./SNPs/dgrp2.snps && rm dgrp2.snps.gz
 
 # Retrieve dgrp variant table (for ASEReadCounter)
 wget -O dm3.variants.gz -L https://virginia.box.com/shared/static/tbqyp2j8e5nds14s78hhrcg7bdpauffc.gz && \
-gunzip -c dm3.variants.gz > ./SNPs/dm3.variants && rm dm3.variants.gz
+gunzip -c dm3.variants.gz | sed 's/FORMAT$/FORMAT\thet/g'  | sed 's/GT$/GT\t0\/1/g' > ./SNPs/dm3.variants && rm dm3.variants.gz
+if [ ! -f ./SNPs/dm3.variants.idx ]; then
+  gatk IndexFeatureFile --feature-file .//SNPs/dm3.variants
+fi
 
 # Generate iMapSplice format gene annotation file
 zcat ../dm3.genepred.gz | tail -n +2 | cut -f 2- > dm3.genepred
 sed 's/$/\tINFO1\tINFO2/g' dm3.genepred > dm3.imapsplice.gaf
 bash ./pruneGAF.sh dm3.imapsplice.gaf && mv dm3.imapsplice.pruned.gaf ./geneAnnotationFile/
+
+# Build Rsubread index
+sbatch  <<EOF
+#!/usr/bin/env bash
+#SBATCH --nodes 1
+#SBATCH --ntasks-per-node 1
+#SBATCH --mem 20G
+#SBATCH --time 0-00:10:00
+#SBATCH --partition largemem
+#SBATCH --account berglandlab
+
+cd ./SNPs/
+module load R/3.5.1
+Rscript - <<EOF
+#!/usr/bin/env Rscript
+library(Rsubread)
+buildindex(basename="dm3_index", reference="dm3.fa")
+EOF

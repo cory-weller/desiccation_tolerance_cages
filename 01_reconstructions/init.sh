@@ -8,3 +8,7 @@ tar -zxvf etc.tar.gz && rm etc.tar.gz
 wget -L https://virginia.box.com/shared/static/hne9mcpr3nd3yur11aeg9zwfc7m5cytz.tar -O low_coverage_dna.tar && \
 tar -xf low_coverage_dna.tar -d ./dna_reads/ && \
 rm low_coverage_dna.tar
+
+# Retrieve reference genome from FlyBase
+wget ftp://ftp.flybase.net/releases/FB2014_03/dmel_r5.57/fasta/dmel-all-chromosome-r5.57.fasta.gz -O dm3.fasta.gz && \
+gunzip dm3.fasta.gz

@@ -33,7 +33,7 @@ while read filename; do
   --RGLB=indoorCages \
   --RGPL=illumina \
   --RGPU=indoorCages \
-  --RGSM=${filestem} && rm ${filename%.sam}.bam ${filename%.sam}.bam
+  --RGSM=${filestem}
 
   samtools sort ${filestem}.rg.bam > ${filestem}.rg.sort.bam && \
   samtools index ${filestem}.rg.sort.bam && \

@@ -23,4 +23,9 @@ Map reads with `bash iMapSplice_map_reads.slurm`
 Run `bash sam_to_bam.slurm` to convert to `.bam` format.
 
 ## Get read counts
-Run `bash getReadCounts.slurm` to add read groups, sort and index `.bam` files, and run the `ASEReadCounter` tool from `GATK` on each sample. Output is placed in `../04_expression_analysis/ASE`.
+To get read counts from the sorted `.bam` files with readgroups added, submit batch arrays:
+```
+sbatch --array=1-384%5 getReadCounts.slurm iMapSplice
+sbatch --array=1-384%5 getReadCounts.slurm RSubRead
+```
+where 384 is the number of samples (`wc -l filestems.txt`), with a maximum of 5 jobs running at a time.

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #SBATCH --nodes 1
-#SBATCH --ntasks-per-node 5
-#SBATCH --mem 40G
-#SBATCH --time 0-01:00:00
+#SBATCH --ntasks-per-node 10
+#SBATCH --mem 80G
+#SBATCH --time 0-04:00:00
 #SBATCH --partition standard
 #SBATCH --account berglandlab
 #SBATCH --mail-type ALL
@@ -27,6 +27,6 @@ function getReadCounts {
 
 export -f getReadCounts
 
-parallel -j 5 getReadCounts ::: ${mapper} ::: $(ls ./mapped_reads/${mapper}/ | grep -v "bai")
+parallel -j 10 getReadCounts ::: ${mapper} ::: $(ls ./mapped_reads/${mapper}/ | grep -v "bai")
 
 echo "done"

@@ -18,7 +18,7 @@ library(data.table)
 library(SNPRelate)
 library(gdsfmt)
 
-gds_filename <- "../filtered_estimates/filtered.all.vcf.gds"
+gds_filename <- "filtered_estimates/filtered.all.vcf.gds"
 
 
 print("opening GDS!")
@@ -28,13 +28,6 @@ geno <- snpgdsOpen(gds_filename, allow.fork=TRUE, readonly = TRUE)
 print("filtering snps")
 
 genotyped_samples <- read.gdsn(index.gdsn(geno, "sample.id"))
-
-
-#phenos <- fread("/scratch/pae3g/phenos/phenos_062018.txt")
-
-
-
-  #only use genotypes from swarm
 
 
 snpset <- snpgdsLDpruning(geno,

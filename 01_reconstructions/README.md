@@ -9,3 +9,7 @@ Run reconstructions with `reconstruct.slurm`
 Calculate which regions to be filtered / excluded from downstream analysis with `cleanup.slurm`
 
 Conduct the aforementioned filtering with `filter.slurm` to output filtered `.vcf` file
+
+make GDS file with `sbatch makeGDS.slurm`
+
+make GRM with `sbatch makeGRM.slurm`

@@ -95,21 +95,28 @@ bridgeAcrossUnknown <- function(path, minimum_segment_length, id, chr) {
 
 setkey(dat, indID, chromosome, start, stop)
 
-o <- foreach(id=unique(dat$indID), .combine="rbind", .errorhandling="remove") %do% {
-  foreach(chr=c("2L","2R","3L","3R","X"), .combine="rbind", .errorhandling="remove") %do% {
-    path <- dat[.(id, chr)]
-    path <- clean_path(path, minimum_segment_length)
-      path <- collapseConsecutiveUnknowns(path)
-      path <- bridgeAcrossUnknown(path, minimum_segment_length, id, chr)
-      path2 <- clean_path_deux(path)
-      path2[, "indID" := id]
-      path2[, "chromosome" := chr]
-      #data_summary <- summarizePathData(path, filestem, chromosome)
-      return(path2[])
+if(! file.exists("filtered_estimates/filtered_haplotypes.tab")) {
+  o <- foreach(id=unique(dat$indID), .combine="rbind", .errorhandling="remove") %do% {
+    foreach(chr=c("2L","2R","3L","3R","X"), .combine="rbind", .errorhandling="remove") %do% {
+      path <- dat[.(id, chr)]
+      path <- clean_path(path, minimum_segment_length)
+        path <- collapseConsecutiveUnknowns(path)
+        path <- bridgeAcrossUnknown(path, minimum_segment_length, id, chr)
+        path2 <- clean_path_deux(path)
+        path2[, "indID" := id]
+        path2[, "chromosome" := chr]
+        #data_summary <- summarizePathData(path, filestem, chromosome)
+        return(path2[])
+    }
   }
+  setkey(o, indID, chromosome, start, stop)
+  write.table(o, file="filtered_estimates/filtered_haplotypes.tab", quote=F, row.names=F, col.names=T, sep="\t")
+} else {
+  print("reading pre-computed filtered haplotypes")
+  o <- fread("filtered_estimates/filtered_haplotypes.tab")
 }
 
-setkey(o, indID, chromosome, start, stop)
+
 
 # get recombination distribution for 1A
 N_recombination <- o[, list(nUnknown=sum(par=="unknown"), Uncorrected=(.N-1)), by=list(indID, chromosome)]
@@ -133,13 +140,26 @@ simHaps.long[, N := NULL]
 
 dat.long <- rbindlist(list(N_recombination.long, simHaps.long))
 
-g1 <- ggplot(dat.long, mapping=aes(x=chromosome, y=value, fill=variable)) + geom_boxplot(coef=1e10) + theme_few(12) +
-scale_fill_manual(values=c("white","gray80","gray40")) + labs(x="Chromosome", y="Diploid Recombination Count", fill="Type")
+dat.long.ag <- dat.long[, list("q025"=quantile(value, 0.025),
+"q25"=quantile(value, 0.25),
+"q50"=quantile(value, 0.5),
+"q75"=quantile(value, 0.75),
+"q975"=quantile(value, 0.975)), by=list(chromosome,variable)]
+
+g1 <- ggplot(dat.long.ag, mapping=aes(x=factor(0), y=q50, fill=variable)) + geom_boxplot(stat="identity", aes(middle=q50, lower=q25, ymin=q025, upper=q75, ymax=q975)) + theme_few(12) +
+scale_fill_manual(values=c("white","gray80","gray40")) + labs(x="Chromosome", y="Diploid Recombination Count", fill="Type") + facet_grid(.~chromosome)+
+   theme(axis.title.x=element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank())
+
+# g1 <- ggplot(dat.long, mapping=aes(x=chromosome, y=value, fill=variable)) + geom_boxplot(coef=1e10) + theme_few(12) +
+# scale_fill_manual(values=c("white","gray80","gray40")) + labs(x="Chromosome", y="Diploid Recombination Count", fill="Type")
 
 ggsave(g1, file="Figure_1A.svg", width=12, height=4, units="in")
 
 
 # Get length distribution for 1B
+o[,length := (stop - start) + 1]
 lengths.unfiltered <- o[, c("chromosome","length")]
 lengths.unfiltered[, type := "Unfiltered"]
 
@@ -153,9 +173,23 @@ lengths.sim[, type := "Simulated"]
 lengths.merged <- rbindlist(list(lengths.unfiltered, lengths.filtered, lengths.sim))
 lengths.merged[, type := factor(type, levels=c("Unfiltered", "Filtered", "Simulated"))]
 
-g2 <- ggplot(data=lengths.merged, mapping=aes(x=chromosome, y=log10(length), fill=type)) + geom_boxplot(coef=1e10) + theme_few(12) +
-scale_fill_manual(values=c("white","gray80","gray40")) + labs(x="Chromosome", y="Recombination Block Length (log10(bp)", fill="Type")
+lengths.merged.ag <- lengths.merged[, list("q025"=log10(quantile(length, 0.025)),
+"q25"=log10(quantile(length, 0.25)),
+"q50"=log10(quantile(length, 0.5)),
+"q75"=log10(quantile(length, 0.75)),
+"q975"=log10(quantile(length, 0.975))), by=list(chromosome,type)]
+
+g2 <- ggplot(data=lengths.merged.ag, mapping=aes(x=factor(0),fill=type)) + geom_boxplot(stat="identity", aes(middle=q50, lower=q25, ymin=q025, upper=q75, ymax=q975)) + theme_few(12) + scale_fill_manual(values=c("white","gray80","gray40")) + labs(x="Chromosome", y="Recombination Block Length, log10(bp)", fill="Type") + facet_grid(.~chromosome) +
+   theme(axis.title.x=element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank())
+
 ggsave(g2, file="Figure_1B.svg",width=12, height=4, units="in")
+
+
+#g2 <- ggplot(data=lengths.merged, mapping=aes(x=chromosome, y=log10(length), fill=type)) + geom_boxplot(coef=1e10) + theme_few(12) +
+# scale_fill_manual(values=c("white","gray80","gray40")) + labs(x="Chromosome", y="Recombination Block Length (log10(bp)", fill="Type")
+# ggsave(g2, file="Figure_1B.svg",width=12, height=4, units="in")
 
 # calculate % missing data per chromosome
 
@@ -193,12 +227,18 @@ ggsave(g3, file="Figure_2A.svg",width=12, height=8, units="in")
 # get min/max values for chromosomes
 chrLengths <- o[, list("chrLength"=max(stop)), by=chromosome]
 
-o2 <- foreach(chr=c("2L","2R","3L","3R","X"), .combine="rbind") %do% {
-  chrMax <- chrLengths[chromosome==chr, chrLength]
-  foreach(startPos=seq(1e5,chrMax-1e5, 10000), .combine="rbind") %do% {
-    stopPos <- startPos+10000
-    data.table(chr, startPos, stopPos, N_missing=o[chromosome==chr & par == "unknown" & stop > startPos & start < stopPos, .N])
+if(! exists("filtered_estimates/filtered_haplotypes.tab")) {
+  o2 <- foreach(chr=c("2L","2R","3L","3R","X"), .combine="rbind") %do% {
+    chrMax <- chrLengths[chromosome==chr, chrLength]
+    foreach(startPos=seq(1e5,chrMax-1e5, 10000), .combine="rbind") %do% {
+      stopPos <- startPos+10000
+      data.table(chr, startPos, stopPos, N_missing=o[chromosome==chr & par == "unknown" & stop > startPos & start < stopPos, .N])
+    }
   }
+  write.table(o, file="filtered_estimates/filtered_haplotypes.tab", quote=F, row.names=F, col.names=T, sep="\t")
+} else {
+  print("reading pre-computed filtered haplotypes")
+  o <- fread("filtered_estimates/filtered_haplotypes.tab")
 }
 
 inversions <- data.table(name=c("In2LT", "In2RNS", "In3RP", "In3LP", "In1A"), chr=c("2L","2R","3R","3L","X"), x1=c(2225744, 11278659, 12257931, 3173046, 13519769), x2=c(13154180, 16163839, 20569732, 16301941, 19473361))

@@ -2,6 +2,83 @@
 
 library(data.table)
 library(ggplot2)
+library(ggthemes)
+library(viridis)
 
 # Plot all relatedness
 dat <- as.data.table(readRDS('./GRM/chr_all.GRM.rds'))
+
+pca <- prcomp(dat, scale. = TRUE)
+pve <- summary(pca)$importance
+pve.pc1 <- pve[2,1]
+pve.pc2 <- pve[2,2]
+
+pca.dt <- data.table(pca$x)
+pca.dt[, indID := colnames(dat)]
+pca.dt[, Treatment := tstrsplit(indID, split="-")[1]]
+pca.dt[, Cage := tstrsplit(indID, split="-")[2]]
+pca.dt[, CageLabel := paste("Cage", Cage)]
+pca.dt[Treatment=="4CB", TreatmentLabel := "Pre-Starvation"]
+pca.dt[Treatment=="23HR", TreatmentLabel := "Post-Starvation"]
+pca.dt[,TreatmentLabel := factor(TreatmentLabel, levels=c("Pre-Starvation", "Post-Starvation"))]
+
+
+g <- ggplot(pca.dt, mapping=aes(x=PC1, y=PC2, fill=TreatmentLabel)) + geom_point(shape=21, size=1) +
+scale_fill_manual(values=c("white","black")) +
+labs(x=paste("PC1: ", round(pve.pc1*100, 1), "% Variance", sep=""), y=paste("PC2: ", round(pve.pc2*100, 1), "% Variance", sep=""), fill="Treatment") +
+facet_wrap(~CageLabel) +
+theme_few(12)
+
+ggsave(g, file="Figure_4B.svg", width=20, height=12, units="cm")
+
+
+# Plot relatedness triangle
+dat[, indID1 := colnames(dat)]
+
+dat2 <- melt(dat, measure.vars=dat$indID1, variable.name="indID2", value.name="Relatedness")
+
+#dat2[, minRelatedness := min(Relatedness)]
+#dat2[, maxRelatedness := max(Relatedness)]
+#dat2[, maxRelatednessCorrected := maxRelatedness - minRelatedness]
+#dat2[, relatednessCorrected := Relatedness - minRelatedness]
+#dat2[, Relatedness := relatednessCorrected/maxRelatednessCorrected]
+#dat2[, c("minRelatedness","maxRelatedness","maxRelatednessCorrected","relatednessCorrected") := NULL]
+
+dat2[, Treatment1 := tstrsplit(indID1, split="-")[1]]
+dat2[, Treatment2 := tstrsplit(indID2, split="-")[1]]
+
+
+dat2[Treatment1=="4CB", Treatment1Label := "Pre-Starvation"]
+dat2[Treatment1=="23HR", Treatment1Label := "Post-Starvation"]
+
+
+dat2[Treatment2=="4CB", Treatment2Label := "Pre-Starvation"]
+dat2[Treatment2=="23HR", Treatment2Label := "Post-Starvation"]
+
+dat2[, Cage1 := tstrsplit(indID1, split="-")[2]]
+dat2[, Cage2 := tstrsplit(indID2, split="-")[2]]
+
+dat2[, Treatment1Label := factor(Treatment1Label, levels=c("Pre-Starvation", "Post-Starvation"))]
+dat2[, Treatment2Label := factor(Treatment2Label, levels=c("Pre-Starvation", "Post-Starvation"))]
+
+dat2[, Cage1 := factor(Cage1, levels=c("1","2","3","4"))]
+dat2[, Cage2 := factor(Cage2, levels=c("1","2","3","4"))]
+
+setkey(dat2, Treatment1Label, Cage1, Relatedness)
+
+valueOrder <- unique(dat2$indID1)
+
+dat2[, indID1 := factor(indID1, levels=valueOrder)]
+dat2[, indID2 := factor(indID2, levels=rev(valueOrder))]
+
+dat2[, iX := as.numeric(indID1)]
+dat2[, iY := as.numeric(indID2)]
+
+g2 <- ggplot(dat2[iX <= abs(iY-672)], mapping=aes(x=indID1, y=indID2, fill=Relatedness)) + geom_tile() + theme_void() + scale_fill_viridis(option="B")
+
+
+g2 <- ggplot(dat2[iX <= abs(iY-672)], mapping=aes(x=indID1, y=indID2, fill=Relatedness)) + geom_tile() + theme_void() + scale_fill_distiller(palette = "Spectral")
++ theme(legend.position="none")
+
+ggsave(g2, file="Figure_4A.png", width=20, height=20, units="cm")
+ggsave(g2, file="Figure_4A.pdf", width=20, height=20, units="cm")

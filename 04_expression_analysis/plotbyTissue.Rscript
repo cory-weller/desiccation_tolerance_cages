@@ -4,7 +4,7 @@
     library(cowplot)
 
 ### load DEseq output
-    res.dt <- fread("/mnt/spicy_1/tissueExpression_indoorCage/dds.shrink.dat")
+    res.dt <- fread("DE/dds.shrink.dat")
     setnames(res.dt, "FlyBaseID", "fbgn")
     setkey(res.dt, fbgn)
 
@@ -30,18 +30,22 @@
 
 ### new flyAtlas
     ### download link
-        #wget ftp://flybase.org/flybase/associated_files/Gelbart.2010.10.13.tar.gz
+        if(! file.exists("Gelbart.2010.10.13.tar.gz") {
+          system("wget ftp://flybase.org/flybase/associated_files/Gelbart.2010.10.13.tar.gz")
+          system("tar -zxvf Gelbart.2010.10.13.tar.gz")
+        }
 
     ### load data
-    	flyAtlas <- fread("/mnt/spicy_1/flyAtlas/Gelbart.2010.10.13/HTD_FlyAtlas_Unique_2010-10-05.txt")
-    	flyAtlas[,lifeStage:=ifelse(grepl("Adult", V5), "adult",
-    								ifelse(grepl("Larval", V5), "larval", NA))]
-    	flyAtlas <- flyAtlas[lifeStage=="adult"]
+    	flyAtlas <- fread("HTD_FlyAtlas_Unique_2010-10-05.txt")
     	setnames(flyAtlas, c("V2", "V5", "V6"), c("fbgn", "tissue", "mean"))
+      flyAtlas <- flyAtlas[tissue %like% "Adult"]
+    	#flyAtlas[,lifeStage:=ifelse(grepl("Adult", V5), "adult",
+    	#							ifelse(grepl("Larval", V5), "larval", NA))]
+    	#flyAtlas <- flyAtlas[lifeStage=="adult"]
 
     ### rank
         set.seed(1234)
-        flyAtlas.rank <- flyAtlas[,list(rank=rank(-mean, ties.method="random", na.last=T), mean=mean, tissue=tissue), list(fbgn)]
+        flyAtlas.rank <- flyAtlas[, list(rank=rank(-mean, ties.method="random", na.last=T), mean=mean, tissue=tissue), by=list(fbgn)]
 
     ### aggregate for besties
         flyAtlas.rank.ag <- flyAtlas.rank[rank==1,list(tissue=tissue, rank=1), list(fbgn)]
@@ -75,7 +79,7 @@
                        n.obs=sum(table(m[log2FoldChange< -x][padj<.05]$tissue)),
                        frac.exp=as.numeric(prop.table(table(m$tissue))),
                        n.exp=sum(table(m$tissue)),
-                       tissue=names(table(m[log2FoldChange < -x][padj<.05]$tissue)),
+                       tissue=names(table(m[log2FoldChange < (-1*x)][padj<.05]$tissue)),
                        x=-x,
                        class="down")
         }

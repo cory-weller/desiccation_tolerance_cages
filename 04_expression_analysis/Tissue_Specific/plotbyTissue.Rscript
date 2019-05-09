@@ -1,0 +1,302 @@
+### libraries
+    library(data.table)
+    library(foreach)
+    library(cowplot)
+
+### load DEseq output
+    res.dt <- fread("/mnt/spicy_1/tissueExpression_indoorCage/dds.shrink.dat")
+    setnames(res.dt, "FlyBaseID", "fbgn")
+    setkey(res.dt, fbgn)
+
+### filter on lowly expressed genes
+    ggplot(data=res.dt, aes(x=log10(baseMean), y=log2FoldChange)) + geom_hex()
+
+    ### fdancy, don't use
+        set.seed(1234)
+        km <- kmeans(x=data.table(x=log10(res.dt$baseMean), y=res.dt$log2FoldChang), nstart=100, centers=2)
+        res.dt[,k:=km$cluster]
+        ggplot(data=res.dt, aes(x=log10(baseMean), y=log2FoldChange)) + geom_hex() + facet_wrap(~k)
+
+        ggplot(data=res.dt, aes(log10(baseMean), group=k, fill=k)) + geom_density()
+        ggplot(data=res.dt, aes(log2FoldChange, group=k, fill=k)) + geom_density()
+
+        res.dt <- res.dt[k==2] ### double check this on R build?
+        ggplot(data=res.dt, aes(x=log2FoldChange, y=-log10(padj))) + geom_point()
+
+    ### simple, use
+        res.dt[,use:=baseMean>1]
+        ggplot(data=res.dt[use==T], aes(x=log2FoldChange, y=-log10(padj))) + geom_point()
+
+
+### new flyAtlas
+    ### download link
+        #wget ftp://flybase.org/flybase/associated_files/Gelbart.2010.10.13.tar.gz
+
+    ### load data
+    	flyAtlas <- fread("/mnt/spicy_1/flyAtlas/Gelbart.2010.10.13/HTD_FlyAtlas_Unique_2010-10-05.txt")
+    	flyAtlas[,lifeStage:=ifelse(grepl("Adult", V5), "adult",
+    								ifelse(grepl("Larval", V5), "larval", NA))]
+    	flyAtlas <- flyAtlas[lifeStage=="adult"]
+    	setnames(flyAtlas, c("V2", "V5", "V6"), c("fbgn", "tissue", "mean"))
+
+    ### rank
+        set.seed(1234)
+        flyAtlas.rank <- flyAtlas[,list(rank=rank(-mean, ties.method="random", na.last=T), mean=mean, tissue=tissue), list(fbgn)]
+
+    ### aggregate for besties
+        flyAtlas.rank.ag <- flyAtlas.rank[rank==1,list(tissue=tissue, rank=1), list(fbgn)]
+
+### merge
+    setkey(res.dt, fbgn)
+    setkey(flyAtlas.rank.ag, fbgn)
+
+    m <- merge(res.dt, flyAtlas.rank.ag)
+    m <- m[use==T]
+
+### aggregate
+    m[,tissue:=factor(tissue, levels=unique(m$tissue))]
+
+    ### up
+        m.ag.up <- foreach(x=seq(from=0, to=5, by=.01), .combine="rbind", .errorhandling="remove")%do%{
+
+            data.table(frac.obs=as.numeric(prop.table(table(m[log2FoldChange>x][padj<.05]$tissue))),
+                       n.obs=sum(table(m[log2FoldChange>x][padj<.05]$tissue)),
+                       frac.exp=as.numeric(prop.table(table(m$tissue))),
+                       n.exp=sum(table(m$tissue)),
+                       tissue=names(table(m[log2FoldChange>x][padj<.05]$tissue)),
+                       x=x,
+                       class="up")
+        }
+
+    ### down
+        m.ag.down <- foreach(x=seq(from=0, to=5, by=.01), .combine="rbind", .errorhandling="remove")%do%{
+
+            data.table(frac.obs=as.numeric(prop.table(table(m[log2FoldChange < -x][padj<.05]$tissue))),
+                       n.obs=sum(table(m[log2FoldChange< -x][padj<.05]$tissue)),
+                       frac.exp=as.numeric(prop.table(table(m$tissue))),
+                       n.exp=sum(table(m$tissue)),
+                       tissue=names(table(m[log2FoldChange < -x][padj<.05]$tissue)),
+                       x=-x,
+                       class="down")
+        }
+
+    ### combine
+        m.ag <- rbind(m.ag.up, m.ag.down)
+        m.ag[,p:= 1 - pbinom(frac.obs*n.obs, n.obs, frac.exp)]
+
+    ggplot() +
+        geom_line(data=m.ag[(n.obs*frac.obs)>10], aes(x=x, y=frac.obs, group=tissue)) +
+        geom_point(data=m.ag[(n.obs*frac.obs)>10][p<.05], aes(x=x, y=frac.obs, color=-log10(p))) +
+        facet_grid(~class, scales="free_x")
+
+
+
+
+
+
+
+
+
+
+    m.ag <- foreach(x=seq(from=0, to=5, by=.01), .combine="rbind")%do%{
+
+        data.table(frac.obs=as.numeric(prop.table(table(m[log2FoldChange < -x]$tissue))),
+                   n.obs=sum(table(m[log2FoldChange< -x]$tissue)),
+                   frac.exp=as.numeric(prop.table(table(m$tissue))),
+                   n.exp=sum(table(m$tissue)),
+                   tissue=names(table(m[log2FoldChange < -x]$tissue)),
+                   x=-x)
+    }
+
+    m.ag[,p:= 1 - pbinom(frac.obs*n.obs, n.obs, frac.exp)]
+
+    ggplot() +
+        geom_line(data=m.ag[(n.obs*frac.obs)>10], aes(x=x, y=frac.obs, group=tissue)) +
+        geom_point(data=m.ag[(n.obs*frac.obs)>10][p<.05], aes(x=x, y=frac.obs, color=-log10(p)))
+
+ unique(m.ag[p<.05][n.obs*frac.obs>50]$tissue)
+
+
+
+
+
+
+    ggplot(data=m.ag[n.obs*>100], aes(x=frac.obs, y=-log10(p), group=tissue)) + geom_line()
+
+
+
+    m.ag <- foreach(x=seq(from=0, to=5, by=.01), .combine="rbind")%do%{
+
+        data.table(frac=c(as.numeric(prop.table(table(m[log2FoldChange>x]$tissue))),
+                          as.numeric(prop.table(table(m[log2FoldChange< -x]$tissue)))),
+                   n=c(sum(table(m[log2FoldChange>x]$tissue)),
+                       sum(table(m[log2FoldChange< -x]$tissue))),
+                   tissue=c(names(table(m[log2FoldChange>x]$tissue)),
+                            names(table(m[log2FoldChange< -x]$tissue))),
+                   x=c(x, -x))
+    }
+
+
+
+    o
+
+    m.ag <- m[,list(mu.fc=mean(log2FoldChange)), list(tissue, rank)]
+
+	ggplot(data=m.ag, aes(tissue, rank)) +
+		geom_bar(aes(fill=factor(rank, levels=1:max(res.fa.dt$r2))), position = "dodge", stat="identity") +
+		theme(axis.text.x = element_text(angle = 45, hjust=1),
+			legend.title = element_blank()) +
+		facet_grid(upRegEgg~.)
+
+
+    m.ag <- m[,list(or=fisher.test(table(sign(log2FoldChange), padj<=1e-20))$estimate), list(tissue, rank)]
+
+    ggplot(data=m.ag, aes(x=rank, y=log2(or), group=tissue, color=tissue)) + geom_line()
+
+
+
+
+
+
+
+### old - this works
+
+	#####################################
+	### enrichment in certain tissues ###
+	#####################################
+			### p-adjust after filtering
+				res.dt[use==T,pa := p.adjust(pvalue, method="fdr")]
+
+				res.dt <- na.omit(res.dt)
+				save(res.dt, file="~/res.dt")
+
+		### load
+			load(file="~/res.dt")
+			setkey(res.dt, fbgn)
+
+		### new flyAtlas
+			#wget ftp://flybase.org/flybase/associated_files/Gelbart.2010.10.13.tar.gz
+
+			flyAtlas <- fread("/mnt/spicy_1/flyAtlas/Gelbart.2010.10.13/HTD_FlyAtlas_Unique_2010-10-05.txt")
+			flyAtlas[,lifeStage:=ifelse(grepl("Adult", V5), "adult",
+										ifelse(grepl("Larval", V5), "larval", NA))]
+			flyAtlas <- flyAtlas[lifeStage=="adult"]
+			setnames(flyAtlas, c("V2", "V5", "V6"), c("fbgn", "tissue", "mean"))
+
+		### mege flyAtlas data in with res.dt
+			setkey(flyAtlas, fbgn)
+			setkey(res.dt, fbgn)
+			res.fa.dt <- merge(res.dt, flyAtlas[,c("fbgn", "tissue", "mean"),with=F])
+
+		### remove male parts
+			setkey(res.fa.dt, tissue)
+			res.fa.dt <- res.fa.dt[!J(c("Adult_Male_Accessory_Gland", "Adult_Testis"))]
+
+		### re-rank w.r.t how does each tissue rank for that gene
+			rank2 <- res.fa.dt[!is.na(mean),list(r2=rank(mean),
+												len=length(mean),
+												tissue),
+											list(fbgn)]
+			setkey(rank2, tissue, fbgn)
+			setkey(res.fa.dt, tissue, fbgn)
+
+			res.fa.dt <- merge(res.fa.dt, rank2)
+
+		### re-rank w.r.t how does gene rank w.r.t that tissue
+			rank3 <- res.fa.dt[!is.na(mean),list(r3=rank(mean)/(length(mean) + 1), fbgn),
+								list(tissue)]
+			setkey(rank3, tissue, fbgn)
+			setkey(res.fa.dt, tissue, fbgn)
+
+			res.fa.dt <- merge(res.fa.dt, rank3)
+
+
+			#ggplot(data=res.fa.dt, aes(tissue, r)) + geom_boxplot(aes(fill=log2FoldChange>0)) + facet_grid(~pa<=0.00005)
+
+
+		### simple plot
+
+			genePr <- foreach(i=1:max(res.fa.dt$r2), .combine="rbind")%do%{
+				res.fa.dt[,list(pr.rank2=mean(r2==i),
+								rank=i,
+								n=length(r2)),
+							list(tissue,
+								sigDE=(pa<=0.05),
+								upRegEgg=log2FoldChange>0)]
+			}
+
+			ggplot(data=genePr[sigDE==T], aes(tissue, pr.rank2)) +
+				geom_bar(aes(fill=factor(rank, levels=1:max(res.fa.dt$r2))), position = "dodge", stat="identity") +
+				theme(axis.text.x = element_text(angle = 45, hjust=1),
+					legend.title = element_blank()) +
+				facet_grid(upRegEgg~.)
+
+
+			tissueEnrich.pr[sigDE==T][upRegEgg==T]
+
+		### make note of these 2600 genes
+			res.fa.dt[pa<=.05 & log2FoldChange>0 & tissue=="Adult_Ovary" & r2==max(res.fa.dt$r2), ovaryTarget:=T]
+			res.fa.dt[is.na(ovaryTarget), ovaryTarget:=F]
+
+		### save
+			save(res.fa.dt, file="~/resFaDt.Rdata")
+
+			load(file="~/resFaDt.Rdata")
+
+		### redo all of above with modEncode data
+			### sanity check - are genes that were dropped from res.dt bc of filtering, weakly expressed?
+				#sed '1,5d' gene_rpkm_report_fb_2016_05.tsv | awk '{if(NF==12) print $0}' | grep -v "WARNING" > gene_rpkm_report_fb_2016_05.clean.tsv
+				setkey(res.dt, fbgn)
+				modEncode <- fread("/mnt/spicy_1/flyAtlas/gene_rpkm_report_fb_2016_05.clean.tsv")
+				setnames(modEncode, "FBgn#", "fbgn")
+				setkey(modEncode, fbgn)
+
+				res2 <- merge(res.dt, modEncode, all.y=T)
+				setkey(res2, RNASource_name)
+
+			### extract out relevant tissues
+				res.mod.dt <- res2[J(c("mE_mRNA_A_4d_carcass",
+										"mE_mRNA_A_4d_dig_sys",
+										"mE_mRNA_A_MateF_1d_head",
+										"mE_mRNA_A_MateF_4d_head",
+										"mE_mRNA_A_MateF_20d_head",
+										"mE_mRNA_AdF_Ecl_1days",
+										"mE_mRNA_AdF_Ecl_5days",
+										"mE_mRNA_AdF_Ecl_30days",
+										"mE_mRNA_A_MateF_4d_ovary"))]
+
+			### ranks for mod-Encode
+				rank2 <- res.mod.dt[!is.na(RPKM_value),list(r2=rank(RPKM_value),
+													len=length(RPKM_value),
+													RNASource_name),
+												list(fbgn)]
+
+				setkey(rank2, RNASource_name, fbgn)
+				setkey(res.mod.dt, RNASource_name, fbgn)
+
+				res.mod.dt <- merge(res.mod.dt, rank2)
+
+			### ovary targets
+				res.mod.dt[pa<=.05 & log2FoldChange>0 & RNASource_name=="mE_mRNA_A_MateF_4d_ovary" & r2==max(res.mod.dt$r2), ovaryTarget:=T]
+				res.mod.dt[is.na(ovaryTarget), ovaryTarget:=F]
+
+
+			### save
+				save(res.mod.dt, file="~/resModDt.Rdata")
+
+			### simple modEncode plot
+
+				genePr <- foreach(i=1:max(res.mod.dt$r2), .combine="rbind")%do%{
+					res.mod.dt[,list(pr.rank2=mean(r2==i),
+									rank=i,
+									n=length(r2)),
+								list(RNASource_name,
+									sigDE=(pa<=0.05),
+									upRegEgg=log2FoldChange>0)]
+				}
+
+				ggplot(data=genePr[sigDE==T], aes(RNASource_name, pr.rank2)) +
+					geom_bar(aes(fill=factor(rank, levels=1:max(res.mod.dt$r2))), position = "dodge", stat="identity") +
+					theme(axis.text.x = element_text(angle = 45, hjust=1),
+						legend.title = element_blank()) +
+					facet_grid(upRegEgg~.)

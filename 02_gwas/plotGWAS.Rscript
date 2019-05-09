@@ -1,0 +1,31 @@
+#!/usr/bin/env Rscript
+
+library(data.table)
+library(foreach)
+
+dat[, snpN := 1:.N,, by=chr]
+setkey(dat, chr, snpN)
+
+max_snp <- dat[, list("N"=max(snpN)), by=chr]
+
+dat[, window1 := trunc(snpN/10000), by=chr]
+
+window <- dat[n.obs > 400][, .SD[which.min(Score.pval)], by=list(window,chr)]
+
+ggplot(window, aes(x=pos, y=-1*log10(Score.pval))) + geom_line() + facet_grid(chr~.)
+
+
+o <- foreach(chromosome=c("2L","2R","3L","3R","X"), .combine="rbind") %do% {
+  maxPos <- max_snp[chromosome, N]
+  foreach(start=seq(1,maxPos, 500), .combine="rbind") %do% {
+    dat[.(chromosome)][snpN %between% c(start, start+1000)][which.min(Score.pval)]
+  }
+}
+
+o <- foreach(chromosome=c("2L"), .combine="rbind") %do% {
+  maxPos <- max_snp[chromosome, N]
+  foreach(start=seq(1,10000, 500), .combine="rbind") %do% {
+    dat[.(chromosome)][snpN %between% c(start, start+1000)][which.min(Score.pval)]
+  }
+}
+500

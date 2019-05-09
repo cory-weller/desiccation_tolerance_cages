@@ -48,7 +48,7 @@ grm <- grm_raw\$grm
 rownames(grm) <- grm_raw\$sample.id
 colnames(grm) <- grm_raw\$sample.id
 
-saveRDS(grm, file="chr2_only.GRM.rds")
+saveRDS(grm, file="./GRM/chr2_only.GRM.rds")
 remove(grm)
 remove(grm_raw)
 
@@ -62,7 +62,7 @@ grm <- grm_raw\$grm
 rownames(grm) <- grm_raw\$sample.id
 colnames(grm) <- grm_raw\$sample.id
 
-saveRDS(grm, file="chr2_excluded.GRM.rds")
+saveRDS(grm, file="./GRM/chr2_excluded.GRM.rds")
 remove(grm)
 remove(grm_raw)
 
@@ -76,7 +76,7 @@ grm <- grm_raw\$grm
 rownames(grm) <- grm_raw\$sample.id
 colnames(grm) <- grm_raw\$sample.id
 
-saveRDS(grm, file="chr3_only.GRM.rds")
+saveRDS(grm, file="./GRM/chr3_only.GRM.rds")
 remove(grm)
 remove(grm_raw)
 
@@ -90,7 +90,7 @@ grm <- grm_raw\$grm
 rownames(grm) <- grm_raw\$sample.id
 colnames(grm) <- grm_raw\$sample.id
 
-saveRDS(grm, file="chr3_excluded.GRM.rds")
+saveRDS(grm, file="./GRM/chr3_excluded.GRM.rds")
 remove(grm)
 remove(grm_raw)
 
@@ -105,7 +105,7 @@ grm <- grm_raw\$grm
 rownames(grm) <- grm_raw\$sample.id
 colnames(grm) <- grm_raw\$sample.id
 
-saveRDS(grm, file="chrx_only.GRM.rds")
+saveRDS(grm, file="./GRM/chrx_only.GRM.rds")
 remove(grm)
 remove(grm_raw)
 
@@ -119,7 +119,7 @@ grm <- grm_raw\$grm
 rownames(grm) <- grm_raw\$sample.id
 colnames(grm) <- grm_raw\$sample.id
 
-saveRDS(grm, file="chrX_excluded.GRM.rds")
+saveRDS(grm, file="./GRM/chrX_excluded.GRM.rds")
 remove(grm)
 remove(grm_raw)
 
@@ -135,7 +135,7 @@ grm <- grm_raw\$grm
 rownames(grm) <- grm_raw\$sample.id
 colnames(grm) <- grm_raw\$sample.id
 
-saveRDS(grm, file="chr_all.GRM.rds")
+saveRDS(grm, file="./GRM/chr_all.GRM.rds")
 remove(grm)
 remove(grm_raw)
 

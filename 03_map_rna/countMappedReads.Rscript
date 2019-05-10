@@ -1,0 +1,47 @@
+#!/usr/bin/env Rscript
+
+library(data.table)
+library(foreach)
+library(ggplot2)
+library(ggthemes)
+library(doMC)
+registerDoMC(cores=5)
+
+iMapSpliceFiles <- list.files(path="./mapped_reads/iMapSplice/", pattern="*.bam$", full.names=TRUE)
+RSubReadFiles <- list.files(path="./mapped_reads/RSubRead/", pattern="*.bam$", full.names=TRUE)
+
+allFiles <- c(iMapSpliceFiles, RSubReadFiles)
+
+o <- foreach(file=allFiles, .combine="rbind", .errorhandling="remove") %dopar% {
+  mapper <- unlist(strsplit(file, split="/"))[3]
+  filename <- basename(file)
+  sampleID <- unlist(strsplit(filename, split="[.]"))[1]
+  dat <- fread(cmd=paste("samtools idxstats ", file, sep=""), header=F, col.names=c("CHR","Length","Mapped", "Unmapped"))
+  dat[, sample := sampleID]
+  dat[, mapper := mapper]
+}
+
+o[CHR == "*", CHR := "Other"]
+o[, totalReads := Mapped + Unmapped]
+
+# Exclude those with fewer than 100k reads
+goodSamples <- o[sample %in% o[, sum(Mapped + Unmapped), by=sample][V1 > 1e5]$sample]
+
+% mapped, # mapped per chrom
+percentMapped <- goodSamples[, list(percent_mapped = sum(Mapped) / (sum(Mapped) + sum(Unmapped))), by=list(sample, mapper)]
+
+
+4CB-3-450
+percentMapped[, mapper := factor(mapper, levels=c("RSubRead","iMapSplice"))]
+g1 <- ggplot(percentMapped, mapping=aes(x=mapper, y=percent_mapped, group=sample)) + geom_line(alpha=0.3) + labs(x="RNA Read Mapper", y="Percent Reads Mapped")
+saveRDS(g1, file="deltaMapped.RDS")
+
+ggsave(g1, file="deltaMapped.svg", height=8, width=10, units="cm")
+
+percentMapped.wide <- dcast(percentMapped, sample ~ mapper)
+percentMapped.wide[, delta := iMapSplice - RSubRead]
+
+g2 <- ggplot(percentMapped.wide, mapping=aes(x=delta)) + geom_density()+ labs(x="Change in % Reads Mapped with iMapSplice", y="Density")
+
+
+g.all <- plot_grid(g1, g2, labels = c("A", "B"))

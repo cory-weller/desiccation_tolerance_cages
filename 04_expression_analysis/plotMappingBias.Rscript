@@ -1,0 +1,114 @@
+#!/usr/bin/env Rscript
+
+library(data.table)
+library(foreach)
+library(ggplot2)
+library(doMC)
+registerDoMC(cores=5)
+
+
+
+get_het_sites <- function(sampleID) {
+  het_fn <- paste("/scratch/caw5cv/desiccation_tolerance_cages/01_reconstructions/filtered_estimates/", sampleID, ".het", sep="")
+  hetSites <- fread(het_fn, header=F, col.names=c("CHR","POS","GT"))
+  hetSites <- hetSites[GT %in% c("0/1","1/0")]
+  hetSites[, CHR := paste("chr", CHR, sep="")]
+
+  return(hetSites)
+}
+
+iMapSplice_files <- list.files(path="./ASE/iMapSplice/", pattern="*.readcounts.gz", full.names=T)
+
+RSubRead_files <- list.files(path="./ASE/RSubRead/", pattern="*.readcounts.gz", full.names=T)
+
+
+importReadCounts <- function(filename) {
+  rc <- fread(cmd=paste('zcat ', filename, sep=""), header=T, select=c(1,2,6,7))
+  setnames(rc, "contig", "CHR")
+  setnames(rc, "position", "POS")
+}
+
+o <- foreach(i=iMapSplice_files, .combine="rbind", .errorhandling="remove") %dopar% {
+  filename <- basename(i)
+  sampleID <- unlist(strsplit(filename, split="[.]"))[1]
+  imap_rc <- importReadCounts(paste("./ASE/iMapSplice/", filename, sep=""))
+  rsubread_rc <- importReadCounts(paste("./ASE/RSubRead/", filename, sep=""))
+  if(! file.exists(paste("/scratch/caw5cv/desiccation_tolerance_cages/01_reconstructions/filtered_estimates/", sampleID, ".het", sep=""))) {
+    return(NULL)
+  }
+  hetSites <- get_het_sites(sampleID)
+  imap_rc <- merge(imap_rc, hetSites, by.x=c("CHR","POS"), by.y=c("CHR","POS"))
+  imap_rc[, total := refCount + altCount]
+  imap_rc <- imap_rc[refCount>1 & altCount>1 & total > 5]
+  imap_rc[, mapper := "iMapSplice"]
+
+  rsubread_rc <- merge(rsubread_rc, hetSites, by.x=c("CHR","POS"), by.y=c("CHR","POS"))
+  rsubread_rc[, total := refCount + altCount]
+  rsubread_rc <- rsubread_rc[refCount>1 & altCount>1 & total > 5]
+  rsubread_rc[, mapper := "RSubRead"]
+
+  out <- rbindlist(list(imap_rc, rsubread_rc))
+  out[, "sample" := sampleID]
+  out[, propRef := round(refCount/total, 3)]
+  return(out)
+}
+
+o[, CHR := tstrsplit(CHR, "chr")[2]]
+
+
+exonic <- fread('../03_map_rna/dm3.genepred', select=c(1,2,6,7), header=F, col.names=c("feature","chr","cdsStart","cdsStop"))
+exonic <- exonic[chr %in% c("chr2L","chr2R","chr3L","chr3R","chrX")]
+exonic[, chr := tstrsplit(chr, "chr")[2]]
+setnames(exonic, "chr", "CHR")
+setkey(exonic, CHR, cdsStart, cdsStop)
+
+o[, cdsStop :=  POS]
+o[, cdsStart := POS]
+o[, id := 1:.N]
+
+ids_within_ranges <- unique(foverlaps(o, exonic, type="within")[!is.na(cdsStart), id])
+
+hetSites <- o[id %in% ids_within_ranges]
+
+
+
+setnames(hetSites, "CHR", "Chromosome")
+g <- ggplot(hetSites[total >= 15], aes(x=propRef, color=Chromosome)) + geom_density() + facet_grid(.~mapper) + geom_vline(xintercept=0.5, linetype="dashed", alpha=0.5) +
+labs(x="Proportion of RNA Reads with Reference Allele (for heterozygous exonic sites)", y="Density")
+g2 <- readRDS('../03_map_rna/deltaMapped.RDS')
+
+g.all <- plot_grid(g, g2, labels = c("A", "B"), align = "h")
+
+ggsave(g.all, file="mapperDifferences.svg", width=35, height=8, units="cm")
+# need to subset exonic
+
+
+vcf <- fread('../01_reconstructions/filtered_estimates/filtered.all.vcf')
+sampleID <- "23HR-1-483"
+command <- paste("bcftools query -s ", sampleID, " -f '%CHROM\t%POS[\t%GT]\n' ../01_reconstructions/filtered_estimates/filtered.all.vcf.gz")
+bcftools query -s 23HR-1-483 -f '%CHROM\t%POS[\t%GT]\n' filtered.all.vcf.gz
+
+o <- fread(cmd=command, header=FALSE, col.names=c("CHROM","POS","GT"))
+
+dat <- fread(cmd="cut -f 1,2,20 filtered.all.vcf | grep -e '^#CHROM' -e '0/1' -e '1/0' ", header=F, col.names=c("CHROM","POS","GT"), skip="#CHROM")
+
+get_heterozygous_sites <- function(ID) {
+
+
+}
+
+dat <- importReadCounts(iMapSplice_files[1])
+dat[,total := refCount + altCount]
+
+dat[, percent_ref := refCount/total]
+
+
+tabix filtered.all.vcf.gz 2L > filtered.all.2L.vcf
+tabix filtered.all.vcf.gz 2R > filtered.all.2R.vcf
+tabix filtered.all.vcf.gz 2L > filtered.all.2L.vcf
+tabix filtered.all.vcf.gz 2L > filtered.all.2L.vcf
+
+
+dat[,c("V2","V587")][V587 %like% "0/1" | V587 %like% "1/0"]
+
+bcftools query -s 23HR-1-483 filtered.all.vcf.gz

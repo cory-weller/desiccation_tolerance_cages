@@ -70,6 +70,9 @@ ids_within_ranges <- unique(foverlaps(o, exonic, type="within")[!is.na(cdsStart)
 
 hetSites <- o[id %in% ids_within_ranges]
 
+# write output
+write.table(hetSites[, ! c("GT","total","propRef","id","cdsStop","cdsStart")], file="./ASE/hetReadCounts.dat", quote=F, row.names=F, col.names=T, sep="\t")
+system('gzip ./ASE/hetReadCounts.dat')
 
 
 setnames(hetSites, "CHR", "Chromosome")

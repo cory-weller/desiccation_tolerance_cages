@@ -1,0 +1,330 @@
+#!/usr/bin/env/Rscript
+
+library(data.table)
+library(ggplot2)
+
+dat <- fread('zcat ./ASE/hetReadCounts.dat.gz')
+dat <- dat[mapper=="iMapSplice"]
+
+
+dat[, TREATMENT := tstrsplit(sample, "-")[1]]
+
+
+dat[, TREATMENT := factor(TREATMENT)]
+setkey(dat, CHR,POS,TREATMENT)
+
+
+# Find CHROM/POS combinations with enough samples to run glm
+
+# include SNPs with at least 4 individuals being heterozygous with reads
+enough_counts <- dat[, .N, by=list(CHR,POS)][N>=4]
+
+setkey(enough_counts, CHR, POS)
+
+dat.filtered <- merge(enough_counts, dat)
+dat.filtered[, rd := refCount + altCount]
+
+# sum counts across all individuals
+#dat.sums <- dat.filtered[, list("ref" = sum(refCount), "alt" = sum(altCount)), by=list(CHROM, POS, TREATMENT)]
+#dat.sums <- dat.sums[ref+alt > 60]
+
+# get coefficient and P values
+#dat.sums[, p := binom.test(ref, ref+alt, 0.5)$p.value, by=list(CHROM,POS,TREATMENT)]
+#dat.sums[, estimate := binom.test(ref, ref+alt, 0.5)$estimate, by=list(CHROM,POS,TREATMENT)]
+
+# dat.wide <- dcast(dat.sums.highcounts, CHROM + POS ~TREATMENT, value.var=c("ref","alt","p","estimate"))
+#
+# dat.wide.filtered <- dat.wide[!is.na(estimate_23HR) & ! is.na(estimate_4CB)]
+# dat.wide.filtered[, deltaASE := estimate_23HR - estimate_4CB]
+#
+# dat.wide.filtered[, CHROM := as.character(CHROM)]
+# dat.wide.filtered[, POS := as.numeric(as.character(POS))]
+
+
+# TODO: convert position to gene ID
+
+exons <- fread('../03_map_reads/annotation_file/dm3.gtf')
+
+exons <- exons[V3=="exon"]
+exons[, fbgene := tstrsplit(V9, '"')[2]]
+exons[, c("V6", "V7", "V8", "V9") := NULL]
+setnames(exons, c("CHROM","type", "exon_or_no", "start", "stop", "GeneID"))
+exons <- exons[CHROM %in% c("chr2L","chr2R","chr3L","chr3R","chrX")]
+exons <- exons[,c("CHROM","start","stop","GeneID")]
+setkey(exons, CHROM, start, stop)
+
+# edit ASE table to be foverlaps-able
+dat.filtered[, "stop" := POS]
+setnames(dat.filtered, "POS", "start")
+setnames(dat.filtered, "id", "sampleID")
+dat.filtered[, id := 1:.N]
+setkey(dat.filtered, NULL)
+# dat.wide.filtered[, "stop" := POS]
+# setnames(dat.wide.filtered, "POS", "start")
+# dat.wide.filtered[, id := 1:.N]
+
+
+
+overlaps <- foverlaps(dat.filtered, exons, type="within")
+overlaps[, id2 := rleid(id, GeneID)]
+overlaps <- overlaps[!duplicated(id2) & !is.na(GeneID)]
+overlaps[, c("start","stop","i.stop","id","id2") := NULL]
+setnames(overlaps, "i.start", "POS")
+setkey(overlaps, GeneID)
+overlaps[, gn := rleid(GeneID)]
+
+
+# only include genes with at least 50 individuals with observations at any SNP within the gene
+overlaps.highcount <- overlaps[gn %in% overlaps[, .N, by=gn][N>50][,gn]]
+
+
+# take gene with max summed read depth
+
+singleSNP <- overlaps[, list("sumRD"=sum(rd)), by=list(GeneID,POS)][, list("POS"=POS[which.max(sumRD)]), by=GeneID]
+setkey(singleSNP, GeneID, POS)
+setkey(overlaps, GeneID, POS)
+
+
+overlaps.singleSNP <- merge(overlaps, singleSNP)
+overlaps.singleSNP[, uniqueID := rleid(GeneID,POS,sampleID)]
+overlaps.singleSNP <- overlaps.singleSNP[!duplicated(uniqueID)]
+
+overlaps.singleSNP[, comboID := rleid(GeneID,POS)]
+
+tmp <- overlaps.singleSNP[, .N, by=list(GeneID, POS,TREATMENT)][N>5][,.N, by=list(GeneID,POS)][N==2]
+setkey(tmp, GeneID, POS)
+
+overlaps.final <- merge(overlaps.singleSNP, tmp)
+
+
+reg <- overlaps.final[, list(
+    "beta.estimate" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,1],
+    "beta.SE" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,2],
+    "beta.p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,4],
+    "intercept.estimate" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,1],
+    "intercept.SE" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,2],
+    "intercept.p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,4],
+    "fit.se" = predict.glm(glm(formula=cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial), se.fit=TRUE)$se.fit,
+    "n_pre" = sum(TREATMENT=="4CB"),
+    "n_post" = sum(TREATMENT=="23HR")
+), by=list(GeneID,POS)]
+
+# reg <- reg[!duplicated(reg)]
+# FBgn0000032
+tmp <- reg[!duplicated(reg)][n_pre %between% c(25,100) & n_post %between% c(25,100)]
+
+# Because predict.glm returns _both_ group standard errors, filter to only include the SE
+# that reflects the standard error different from the already-existing intercept estimate
+reg2 <- tmp[tmp[, .I[which.max(abs(intercept.SE - fit.se))], by=GeneID]$V1]
+
+
+reg2[, fit.estimate := intercept.estimate + beta.estimate]
+reg2[, fit.lower := fit.estimate - 1.96*fit.se]
+reg2[, fit.upper := fit.estimate + 1.96*fit.se]
+reg2[fit.lower <= 0 & fit.upper >= 0, post.ASE := FALSE]
+reg2[fit.lower > 0 | fit.upper < 0, post.ASE := TRUE]
+reg2[, intercept.upper := intercept.estimate + 1.96*intercept.SE]
+reg2[, intercept.lower := intercept.estimate - 1.96*intercept.SE]
+reg2[intercept.upper < 0 | intercept.lower > 0, pre.ASE := TRUE]
+reg2[is.na(pre.ASE), pre.ASE := FALSE]
+
+# tmp <- glm(data=overlaps.final[gn==4], formula=cbind(refCount,altCount)~TREATMENT, family=quasibinomial)
+
+
+# overlaps.final[, list("fit.se" = predict.glm(glm(formula=cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial), se.fit=TRUE)$se.fit), by=list(GeneID, POS)]
+
+
+#ggplot(data=reg, mapping=aes(x=beta, y=-1*log10(P))) + geom_point(shape=21)
+
+#### STOP HERE
+
+# deltaASE is more or less normally distributed, slightly skewed center, median and mean both at 0.023
+
+# load in delta expression
+TPM_matrix.long <- readRDS('/sfs/lustre/scratch/caw5cv/iMapSplice/permutationTPMlongMatrix.RDS')
+
+
+cvars <- TPM_matrix.long[, list("cvar"=sd(TPM, na.rm=T)/mean(TPM, na.rm=T)), by=list(treatment, GeneID)]
+
+dat.wide <- dcast(cvars, GeneID~treatment)
+dat.wide <- dat.wide[! is.na(`23HR`) & ! is.na(`4CB`)]
+
+dat.wide[, tot := sum(`23HR`, `4CB`, na.rm=T), by=GeneID]
+
+topTwentyConsistentGenes <- dat.wide[tot>0][order(tot)][1:20, GeneID]
+
+# Twenty genes with lowest sum of coefficient of varitaion:
+# SUBMITTED ID	NAME
+# FBgn0011284	Ribosomal protein S4
+# FBgn0261592	Ribosomal protein S6
+# FBgn0014026	Ribosomal protein L7A
+# FBgn0002607	Ribosomal protein L19
+# FBgn0010198	Ribosomal protein S15Aa
+# FBgn0020618	Receptor of activated protein kinase C 1
+# FBgn0014184	Ornithine decarboxylase antizyme
+# FBgn0036213	Ribosomal protein L10Ab
+# FBgn0003462	Superoxide dismutase
+# FBgn0003941	Ribosomal protein L40
+# FBgn0039857	Ribosomal protein L6
+# FBgn0037328	Ribosomal protein L35A
+# FBgn0261602	Ribosomal protein L8
+# FBgn0034968	Ribosomal protein L12
+# FBgn0013325	Ribosomal protein L11
+# FBgn0261593	Ribosomal protein S10b
+# FBgn0010408	Ribosomal protein S9
+# FBgn0024733	Ribosomal protein L10
+# FBgn0010078	Ribosomal protein L23
+# FBgn0003274	Ribosomal protein LP2
+
+topTwentyConsistentExpression <- TPM_matrix.long[GeneID %in% topTwentyConsistentGenes][, list("medianTPM"=median(TPM, na.rm=T)), by=list(sampleID)]
+
+# show difference in median TPM expression between treatments
+topTwentyConsistentExpression[, starvation := grepl("23HR", sampleID)]
+topTwentyConsistentExpression[, treatment := ifelse(starvation==TRUE, "Post-Starvation", "Peak Reproduction")]
+
+TPM_dict <- topTwentyConsistentExpression[, c("sampleID","medianTPM")]
+setkey(topTwentyConsistentExpression, sampleID)
+
+TPM_matrix.long <- merge(TPM_matrix.long, TPM_dict)
+TPM_matrix.long[, adjLogTPM := log(TPM) - log(medianTPM)]
+
+TPM_matrix.long <- TPM_matrix.long[is.finite(adjLogTPM)]
+
+diffE <- TPM_matrix.long[, list("medianAdjTPM"=median(adjLogTPM, na.rm=T)), by=list(treatment,GeneID)]
+diffE.wide <- dcast(diffE, GeneID~treatment)
+diffE.wide[, delta := `23HR` - `4CB`]
+
+ geneDict <- fread('../gaf/fbgene_names.txt', fill=T, header=F)
+
+
+#geneDict <- fread('/scratch/caw5cv/iMapSplice/FlyBase_Fields_download.txt')
+setnames(geneDict, c("GeneID", "GeneName", "Abbreviation"))
+
+diffE.wide <- merge(geneDict, diffE.wide, by="GeneID")
+setnames(diffE.wide, "delta", "deltaExpression")
+
+####
+
+# reg[, flipSign := intercept.estimate < 0 & endpoint.estimate > 0]
+# reg[, increaseASE := abs(endpoint.estimate) > abs(intercept.estimate)]
+
+merged <- merge(diffE.wide, reg2, by="GeneID")
+
+merged[, fit_span_zero := ifelse(fit.lower < 0 & fit.upper > 0, TRUE, FALSE)]
+merged[, intercept_span_zero := ifelse(intercept.lower < 0 & intercept.upper > 0, TRUE, FALSE)]
+
+
+merged[intercept.upper < 0 & fit.upper < intercept.lower, ASEchange := "Increased bias in same direction"]
+merged[intercept.upper > 0 & fit.lower > intercept.upper, ASEchange := "Increased bias in same direction"]
+
+merged[intercept_span_zero == TRUE & fit_span_zero == FALSE, ASEchange := "Expression becomes biased"]
+
+merged[intercept.upper < 0 & fit.upper < 0 & fit.lower > intercept.upper, ASEchange := "Reduction in bias"]
+merged[intercept.lower > 0 & fit.lower > 0 & fit.upper < intercept.lower, ASEchange := "Reduction in bias"]
+merged[intercept_span_zero == FALSE & fit_span_zero == TRUE, ASEchange := "Reduction in bias"]
+
+merged[(intercept.upper > fit.lower | intercept.lower > fit.upper) & intercept_span_zero == FALSE & fit_span_zero == FALSE, ASEchange := "Maintenance of bias"]
+
+merged[intercept_span_zero == TRUE & fit_span_zero == TRUE, ASEchange := "No bias detected"]
+
+merged[(intercept.lower > 0 & fit.upper < 0) | (intercept.upper < 0 & fit.upper > 0 ), ASEchange := "Biased allele changes"]
+
+
+#ggplot(data=merged[!is.na(post.ASE) & ! is.na( pre.ASE)], mapping=aes(x=deltaExpression, y=abs(beta.estimate), color=ASEchange)) +
+#  geom_point() +
+#  facet_grid(post.ASE~pre.ASE, labeller="label_both") +
+#  theme_few(12)
+
+label_table <- merged[!is.na(post.ASE) & ! is.na(pre.ASE)][, list(.N,
+"ASE_median"=median(abs(beta.estimate)),
+"ASE_lower"=quantile(abs(beta.estimate), 0.25),
+"ASE_upper"=quantile(abs(beta.estimate), 0.75),
+"expression_median"=median(deltaExpression),
+"expression_upper"=quantile(deltaExpression, 0.25),
+"expression_lower"=quantile(deltaExpression, 0.75)), by=ASEchange]
+
+label_table[, x := 1.7]
+label_table[, y := 1.2]
+
+
+
+g <- ggplot(data=merged[!is.na(post.ASE) & ! is.na( pre.ASE)], mapping=aes(x=deltaExpression, y=abs(beta.estimate), color=ASEchange)) +
+  geom_point(shape=21, color="black") + facet_wrap(~ASEchange, ncol=3) +
+  geom_text(data=label_table, aes(x=x, y=y, label=paste("N=",N)), color="black") +
+  geom_vline(xintercept=0, linetype="dashed", alpha=1, color="gray") +
+  theme_few(14) +
+  guides(color=FALSE) +
+  labs(x="Change in Expression in Starvation Treatment (log2(Fold Change))",
+        y="Change in Magnitude of ASE in Starvation Treatment")
+
+# geom_errorbar(data=label_table, mapping=aes(x=expression_median, y=y, ymin=ASE_lower, ymax=ASE_upper), color="black") +
+# geom_errorbarh(data=label_table, mapping=aes(x=x, y=ASE_median, xmin=expression_lower, xmax=expression_upper), color="black") +
+
+ggsave(g, file="aseVsExpression.svg", width=9, units="in")
+
+#ggplot(data=merged[beta.estimate<0.05], mapping=aes(x=deltaExpression, y=abs(beta.estimate), label=GeneName, color=(intercept.p < 0.01))) + geom_point(shape=21, alpha=0.6)
+#ggplot(reg[beta.estimate<0.05], mapping=aes(x=abs(beta.estimate), y=-1*log10(beta.p), color=(intercept.p < 0.05))) + geom_point()
+
+library(ggrepel)
+merged[GeneName=="-", GeneName := ""]
+merged[deltaExpression %between% c(-1,0.75) & abs(beta.estimate) < 0.8, GeneName := ""]
+
+# Post-starvation-specific ASE : genes with 50/50 expression pre, but biased expression after: ranked by absolute value of beta estimate
+merged[, ASE := ifelse(intercept.p > 0.05 & beta.p < 0.05, "post-specific", NA)]
+merged[, endpoint.estimate := beta.estimate + intercept.estimate]
+merged[ intercept.p < 0.05 & beta.p < 0.05 & abs(endpoint.estimate) < 0.05, ASE := "pre_specific"]
+ggplot(data=merged[!is.na(ASE)], mapping=aes(x=deltaExpression, y=abs(beta.estimate), color=ASE)) + geom_point() +
+
+
+# Check how it looks
+ggplot(data=merged[beta.p<0.01 & intercept.p<0.01], mapping=aes(x=deltaExpression, y=abs(beta.estimate), label=GeneName, color=flipSign, shape=factor(increaseASE))) +   geom_point() + xlim(-3.5, 3.5)
+
++ geom_text_repel()
+
+
+
+merged[deltaExpression<(-2.5), interesting := TRUE]
+merged[deltaExpression > 1.7, interesting := TRUE]
+merged[deltaASE > .45, interesting := TRUE]
+merged[deltaASE < (-0.45), interesting := TRUE]
+
+
+ggplot(data=merged, mapping=aes(x=deltaExpression, y=deltaASE, color=interesting)) +
+  geom_point(shape=21) + geom_hline(yintercept=0) + geom_vline(xintercept=0)
+
+# if looks good, change GeneName of everything  not outside these bounds to ""
+merged[is.na(interesting), GeneName := ""]
+merged[GeneName=="-", GeneName := ""]
+
+
+library(ggrepel)
+
+ggplot(data=merged, mapping=aes(x=deltaExpression, y=deltaASE, color=interesting, label=GeneName)) +
+  geom_point(shape=21) + geom_hline(yintercept=0) + geom_vline(xintercept=0) +
+  guides(color=FALSE) +
+  geom_text_repel()
+
+ggplot(merged, mapping=aes(x=deltaExpression, y=deltaASE, color=interesting, label=GeneName)) + geom_point() + geom_text_repel()
+
+
+# get p-value
+
+
+
+
+dt <- dat.filtered[CHROM=="chr2L"][, list(fitted = glm(cbind(refCount, altCount) ~ TREATMENT, family = binomial)$fitted), by=list(POS)]
+
+
+dt <- dat.filtered[, list("p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = binomial))$coefficients[2,4]), by=list(CHROM,POS)]
+
+
+dt2 <- dat.filtered[, list("p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,4]), by=list(CHROM,POS)]
+
+dt2 <- dat.filtered[, list("p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,4]), by=list(CHROM,POS)]
+
+
+
+
+ggplot(data=dt2[p<0.01], mapping=aes(x=POS,y=-1*log10(p))) + geom_point() + facet_grid(.~CHROM)
+
+tmp <- dat.filtered[, .("ref"=sum(refCount), "alt"=sum(altCount)), by=list(CHROM,POS,TREATMENT)]

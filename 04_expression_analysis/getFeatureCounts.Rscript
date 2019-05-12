@@ -4,7 +4,15 @@
 library(data.table)
 library(Rsubread)
 
-source("DESeq.config")
+bamFilePath <- "../03_map_rna/mapped_reads/"
+gtfFilePath <- "dm3.gtf"
+GC_to_FB_file <- "dm3.GC_to_FB.txt"
+
+# Name to store feature counts RDS file
+feature_counts_RDS <- "./DE/dm3.featureCounts.RDS"
+gene_lengths_filename <- "./DE/dm3.genelength"
+expression_matrix_filename <- "./DE/dm3.featureCountMatrix"
+DESeq_filename <- "./DE/DESeq.dds.RDS"
 
 # get feature counts
 get_featurecounts <- function(bamFilePath, gtfFilePath, feature_counts_RDS) {

@@ -5,6 +5,7 @@ library(foreach)
 library(ggplot2)
 library(doMC)
 registerDoMC(cores=5)
+library(cowplot)
 
 
 
@@ -28,6 +29,7 @@ importReadCounts <- function(filename) {
   setnames(rc, "position", "POS")
 }
 
+# get ASE read counts
 o <- foreach(i=iMapSplice_files, .combine="rbind", .errorhandling="remove") %dopar% {
   filename <- basename(i)
   sampleID <- unlist(strsplit(filename, split="[.]"))[1]
@@ -49,14 +51,14 @@ o <- foreach(i=iMapSplice_files, .combine="rbind", .errorhandling="remove") %dop
 
   out <- rbindlist(list(imap_rc, rsubread_rc))
   out[, "sample" := sampleID]
-  out[, propRef := round(refCount/total, 3)]
   return(out)
 }
 
 o[, CHR := tstrsplit(CHR, "chr")[2]]
 
 
-exonic <- fread('../03_map_rna/dm3.genepred', select=c(1,2,6,7), header=F, col.names=c("feature","chr","cdsStart","cdsStop"))
+exonic <- fread('dm3.gtf', select=c(1,3,4,5,9), header=F, col.names=c("chr","type","cdsStart","cdsStop","feature"))
+exonic <- exonic[type=="exon"]
 exonic <- exonic[chr %in% c("chr2L","chr2R","chr3L","chr3R","chrX")]
 exonic[, chr := tstrsplit(chr, "chr")[2]]
 setnames(exonic, "chr", "CHR")
@@ -67,22 +69,57 @@ o[, cdsStart := POS]
 o[, id := 1:.N]
 
 ids_within_ranges <- unique(foverlaps(o, exonic, type="within")[!is.na(cdsStart), id])
-
 hetSites <- o[id %in% ids_within_ranges]
 
 # write output
 write.table(hetSites[, ! c("GT","total","propRef","id","cdsStop","cdsStart")], file="./ASE/hetReadCounts.dat", quote=F, row.names=F, col.names=T, sep="\t")
 system('gzip ./ASE/hetReadCounts.dat')
 
-
+hetSites <- hetSites[, ! c("GT","total","propRef","id","cdsStop","cdsStart")]
+hetSites[, mapper := factor(mapper, levels=c("RSubRead", "iMapSplice"))]
 setnames(hetSites, "CHR", "Chromosome")
-g <- ggplot(hetSites[total >= 15], aes(x=propRef, color=Chromosome)) + geom_density() + facet_grid(.~mapper) + geom_vline(xintercept=0.5, linetype="dashed", alpha=0.5) +
-labs(x="Proportion of RNA Reads with Reference Allele (for heterozygous exonic sites)", y="Density")
-g2 <- readRDS('../03_map_rna/deltaMapped.RDS')
+hetSites[, total := refCount + altCount]
+hetSites[, propRef := refCount / total]
 
-g.all <- plot_grid(g, g2, labels = c("A", "B"), align = "h")
+gA <- ggplot(hetSites[refCount > 2 & altCount > 2 & total >= 15], aes(x=propRef, color=Chromosome)) + geom_density() + facet_grid(.~mapper) + geom_vline(xintercept=0.5, linetype="dashed", alpha=0.5) +
+labs(x="Reference Allele Mapping Bias", y="Density") + scale_x_continuous(breaks=c(0, 0.25, 0.5, 0.75, 1), labels=c("0", "0.25", "0.5", "0.75", "1"))
 
-ggsave(g.all, file="mapperDifferences.svg", width=35, height=8, units="cm")
+
+# get mapped read counts
+
+iMapSpliceFiles <- list.files(path="../03_map_rna/mapped_reads/iMapSplice/", pattern="*.bam$", full.names=TRUE)
+RSubReadFiles <- list.files(path="../03_map_rna/mapped_reads/RSubRead/", pattern="*.bam$", full.names=TRUE)
+
+allFiles <- c(iMapSpliceFiles, RSubReadFiles)
+
+
+o <- foreach(file=allFiles, .combine="rbind", .errorhandling="remove") %dopar% {
+  mapper <- unlist(strsplit(file, split="/"))[4]
+  filename <- basename(file)
+  sampleID <- unlist(strsplit(filename, split="[.]"))[1]
+  dat <- fread(cmd=paste("samtools idxstats ", file, sep=""), header=F, col.names=c("CHR","Length","Mapped", "Unmapped"))
+  dat[, sample := sampleID]
+  dat[, mapper := mapper]
+}
+
+o[CHR == "*", CHR := "Other"]
+o[, totalReads := Mapped + Unmapped]
+
+# Exclude those with fewer than 100k reads
+goodSamples <- o[sample %in% o[, sum(Mapped + Unmapped), by=sample][V1 > 1e5]$sample]
+
+#% mapped, # mapped per chrom
+percentMapped <- goodSamples[, list(percent_mapped = sum(Mapped) / (sum(Mapped) + sum(Unmapped))), by=list(sample, mapper)]
+
+percentMapped[, mapper := factor(mapper, levels=c("RSubRead","iMapSplice"))]
+
+gB <- ggplot(percentMapped, mapping=aes(x=mapper, y=percent_mapped, group=sample)) + geom_line(alpha=0.3) + labs(x="RNA Read Mapper", y="Percent Reads Mapped")
+
+
+g.all <- plot_grid(gA, gB, labels = c("A", "B"), align = "h", rel_widths=c(2,1))
+
+ggsave(g.all, file="mapperDifferences.svg", width=27, height=8, units="cm")
+
 # need to subset exonic
 
 

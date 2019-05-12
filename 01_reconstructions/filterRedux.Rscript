@@ -3,6 +3,7 @@ library(data.table)
 library(foreach)
 library(ggthemes)
 library(ggbeeswarm)
+library(cowplot)
 
 dat <- fread('zcat ./estimate_genomes/estimatePaths.tab.gz')
 dat[, indID := tstrsplit(filestem, split="_")[1]]
@@ -146,8 +147,11 @@ dat.long.ag <- dat.long[, list("q025"=quantile(value, 0.025),
 "q75"=quantile(value, 0.75),
 "q975"=quantile(value, 0.975)), by=list(chromosome,variable)]
 
-g1 <- ggplot(dat.long.ag, mapping=aes(x=factor(0), y=q50, fill=variable)) + geom_boxplot(stat="identity", aes(middle=q50, lower=q25, ymin=q025, upper=q75, ymax=q975)) + theme_few(12) +
-scale_fill_manual(values=c("white","gray80","gray40")) + labs(x="Chromosome", y="Diploid Recombination Count", fill="Type") + facet_grid(.~chromosome)+
+g1 <- ggplot(dat.long.ag, mapping=aes(x=factor(0), y=q50, fill=variable)) +
+geom_boxplot(stat="identity", aes(middle=q50, lower=q25, ymin=q025, upper=q75, ymax=q975)) +
+scale_fill_manual(values=c("white","gray80","gray40")) +
+labs(x="Chromosome", y="Diploid Recombination Count", fill="Type") +
+facet_grid(.~chromosome)+
    theme(axis.title.x=element_blank(),
     axis.text.x=element_blank(),
     axis.ticks.x=element_blank())
@@ -179,12 +183,20 @@ lengths.merged.ag <- lengths.merged[, list("q025"=log10(quantile(length, 0.025))
 "q75"=log10(quantile(length, 0.75)),
 "q975"=log10(quantile(length, 0.975))), by=list(chromosome,type)]
 
-g2 <- ggplot(data=lengths.merged.ag, mapping=aes(x=factor(0),fill=type)) + geom_boxplot(stat="identity", aes(middle=q50, lower=q25, ymin=q025, upper=q75, ymax=q975)) + theme_few(12) + scale_fill_manual(values=c("white","gray80","gray40")) + labs(x="Chromosome", y="Recombination Block Length, log10(bp)", fill="Type") + facet_grid(.~chromosome) +
+g2 <- ggplot(data=lengths.merged.ag, mapping=aes(x=factor(0),fill=type)) +
+geom_boxplot(stat="identity", aes(middle=q50, lower=q25, ymin=q025, upper=q75, ymax=q975)) +
+scale_fill_manual(values=c("white","gray80","gray40")) + labs(x="Chromosome", y="Recombination Block Length,\nlog10(bp)", fill="Type") +
+facet_grid(.~chromosome) +
    theme(axis.title.x=element_blank(),
     axis.text.x=element_blank(),
     axis.ticks.x=element_blank())
 
 ggsave(g2, file="Figure_1B.svg",width=12, height=4, units="in")
+
+
+g_F1 <- plot_grid(g1, g2, labels = c("A", "B"), align = "v", nrow=2, rel_widths=c(1,1))
+
+ggsave(g_F1, file="filteringImprovement.svg", width=20, height=20, units="cm")
 
 
 #g2 <- ggplot(data=lengths.merged, mapping=aes(x=chromosome, y=log10(length), fill=type)) + geom_boxplot(coef=1e10) + theme_few(12) +
@@ -235,16 +247,19 @@ if(! exists("filtered_estimates/filtered_haplotypes.tab")) {
       data.table(chr, startPos, stopPos, N_missing=o[chromosome==chr & par == "unknown" & stop > startPos & start < stopPos, .N])
     }
   }
-  write.table(o, file="filtered_estimates/filtered_haplotypes.tab", quote=F, row.names=F, col.names=T, sep="\t")
+  write.table(o2, file="filtered_estimates/filtered_haplotypes.tab", quote=F, row.names=F, col.names=T, sep="\t")
 } else {
   print("reading pre-computed filtered haplotypes")
-  o <- fread("filtered_estimates/filtered_haplotypes.tab")
+  o2 <- fread("filtered_estimates/filtered_haplotypes.tab")
 }
 
 inversions <- data.table(name=c("In2LT", "In2RNS", "In3RP", "In3LP", "In1A"), chr=c("2L","2R","3R","3L","X"), x1=c(2225744, 11278659, 12257931, 3173046, 13519769), x2=c(13154180, 16163839, 20569732, 16301941, 19473361))
 # from Population Genomics of Inversion Polymorphisms in Drosophila melanogaster
 # Russell B. Corbett-Detig Daniel L. Hartl https://journals.plos.org/plosgenetics/article?id=10.1371/journal.pgen.1003056
 
-g4 <- ggplot(data=o2, mapping=aes(x=startPos, y=N_missing/374)) + geom_line() + facet_grid(chr~.)  + geom_rect(data=inversions,  alpha=0.2, mapping=aes(xmin=x1, xmax=x2, ymin=0, ymax=0.25), inherit.aes=FALSE) + theme_few(12) + scale_x_continuous(breaks=c(1e6, 5e6, 10e6, 15e6, 20e6, 25e6), labels=c("1 Mbp", "5 Mbp", "10 Mbp", "15 Mbp", "20 Mbp", "25 Mbp")) +
+g4 <- ggplot(data=o2, mapping=aes(x=startPos, y=N_missing/374)) + geom_line() + facet_grid(chr~.)  +
+geom_rect(data=inversions,  alpha=0.2, mapping=aes(xmin=x1, xmax=x2, ymin=0, ymax=0.25), inherit.aes=FALSE) +
+scale_x_continuous(breaks=c(1e6, 5e6, 10e6, 15e6, 20e6, 25e6), labels=c("1 Mbp", "5 Mbp", "10 Mbp", "15 Mbp", "20 Mbp", "25 Mbp")) +
 labs(x="Window Position", y="Percent of Samples with Filtered Ancestry")
+
 ggsave(g4, file="Figure_2B.svg",width=12, height=8, units="in")

@@ -75,6 +75,115 @@ hetSites <- o[id %in% ids_within_ranges]
 write.table(hetSites[, ! c("GT","total","propRef","id","cdsStop","cdsStart")], file="./ASE/hetReadCounts.dat", quote=F, row.names=F, col.names=T, sep="\t")
 system('gzip ./ASE/hetReadCounts.dat')
 
+hetSites <- fread('zcat ./ASE/hetReadCounts.dat.gz')
+hetSites <- hetSites[mapper=="iMapSplice"]
+hetSites[, cdsStart := POS]
+hetSites[, cdsStop := POS]
+hetSites[, id := 1:.N]
+
+overlaps <- foverlaps(hetSites, exonic, type="within")[!is.na(cdsStart)]
+overlaps[, AnnotationID := tstrsplit(feature, split='["]')[2]]
+overlaps[, total := refCount+altCount]
+
+
+
+# only include genes with at least 25 individuals with observations at any SNP within the gene
+overlaps.highcount <- overlaps[AnnotationID %in% overlaps[, .N, by=AnnotationID][N>25][,AnnotationID]]
+
+
+# take gene with max summed read depth
+
+singleSNP <- overlaps.highcount[, list("sumRD"=sum(total)), by=list(AnnotationID,POS)][, list("POS"=POS[which.max(sumRD)]), by=AnnotationID]
+setkey(singleSNP, AnnotationID, POS)
+setkey(overlaps.highcount, AnnotationID, POS)
+
+overlaps.singleSNP <- merge(overlaps.highcount, singleSNP)
+overlaps.singleSNP[, uniqueID := rleid(AnnotationID,POS,sample)]
+overlaps.singleSNP <- overlaps.singleSNP[!duplicated(uniqueID)]
+
+overlaps.singleSNP[, comboID := rleid(AnnotationID,POS)]
+overlaps.singleSNP[, TREATMENT := tstrsplit(sample, split="[-]")[1]]
+overlaps.singleSNP[, CAGE := tstrsplit(sample, split="[-]")[2]]
+
+tmp <- overlaps.singleSNP[, .N, by=list(AnnotationID, POS,TREATMENT)][N>5][,.N, by=list(AnnotationID,POS)][N==2]
+
+setkey(tmp, AnnotationID, POS)
+
+overlaps.final <- merge(overlaps.singleSNP, tmp)
+
+overlaps.final[, c("type","feature","mapper","i.cdsStart","i.cdsStop","uniqueID","comboID") := NULL]
+overlaps.final[, bias := refCount / total]
+
+overlaps.final.highcount <- overlaps.final[AnnotationID %in% overlaps.final[refCount>4 & altCount>4 & total > 20][, .N, by=list(AnnotationID,TREATMENT)][N > 10][, .N, by=AnnotationID][N==2][,AnnotationID]][refCount>4 & altCount>4 & total > 20]
+
+
+
+
+bias.bygroup <- overlaps.final.highcount[, list("meanBias"=mean(bias), "sdBias"=sd(bias), .N), by=list(AnnotationID, TREATMENT)]
+
+tmp <- dcast(bias.bygroup, AnnotationID ~ TREATMENT, value.var=c("meanBias","sdBias","N"))[!is.na(meanBias_4CB) & !is.na(meanBias_23HR)]
+crossZero <- tmp[(meanBias_23HR > 0.5 & meanBias_4CB < 0.5) | (meanBias_23HR < 0.5 & meanBias_4CB > 0.5)]
+crossZero[, delta := abs(meanBias_4CB - meanBias_23HR)]
+
+crossZero[order(-delta)]
+
+ggplot(overlaps.final[AnnotationID=="CG11129"][refCount>5 & altCount > 5], aes(x=TREATMENT, y=bias))  + geom_jitter()
+
+# ribosomal proteins?
+CG8495
+CG10071
+CG15442
+CG4863
+
+#
+ 5:      CG15442     0.5862956    0.3988432   0.2945283  0.2552092     57    67
+
+
+reg <- overlaps.final.highcount[, list(
+    "beta.estimate" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,1],
+    "beta.SE" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,2],
+    "beta.p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,4],
+    "intercept.estimate" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,1],
+    "intercept.SE" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,2],
+    "intercept.p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,4],
+    "fit.se" = predict.glm(glm(formula=cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial), se.fit=TRUE)$se.fit,
+    "n_pre" = sum(TREATMENT=="4CB"),
+    "n_post" = sum(TREATMENT=="23HR")
+), by=list(AnnotationID,POS)]
+
+
+tmp <- reg[!duplicated(reg)][n_pre > 25 & n_post > 25]
+
+# Because predict.glm returns _both_ group standard errors, filter to only include the SE
+# that reflects the standard error different from the already-existing intercept estimate
+reg2 <- tmp[tmp[, .I[which.max(abs(intercept.SE - fit.se))], by=AnnotationID]$V1]
+
+
+reg2[, fit.estimate := intercept.estimate + beta.estimate]
+reg2[, fit.lower := fit.estimate - 1.96*fit.se]
+reg2[, fit.upper := fit.estimate + 1.96*fit.se]
+reg2[fit.lower <= 0 & fit.upper >= 0, post.ASE := FALSE]
+reg2[fit.lower > 0 | fit.upper < 0, post.ASE := TRUE]
+reg2[, intercept.upper := intercept.estimate + 1.96*intercept.SE]
+reg2[, intercept.lower := intercept.estimate - 1.96*intercept.SE]
+reg2[intercept.upper < 0 | intercept.lower > 0, pre.ASE := TRUE]
+reg2[is.na(pre.ASE), pre.ASE := FALSE]
+
+reg2[fit.upper < intercept.lower | intercept.upper < fit.lower]
+
+reg2[fit.upper < intercept.lower | intercept.upper < fit.lower][pre.ASE == TRUE & post.ASE == TRUE]
+# yields two hits for changes in
+# oderant-bindign protein
+# Alcohol dehydrogenase
+
+overlaps[ .SD[which.max(sum(total))], by=list(AnnotationID
+
+# for a given Annotation ID, pick the position with the greatest total read counts
+
+by=AnnotationID
+
+
+
 hetSites <- hetSites[, ! c("GT","total","propRef","id","cdsStop","cdsStart")]
 hetSites[, mapper := factor(mapper, levels=c("RSubRead", "iMapSplice"))]
 setnames(hetSites, "CHR", "Chromosome")

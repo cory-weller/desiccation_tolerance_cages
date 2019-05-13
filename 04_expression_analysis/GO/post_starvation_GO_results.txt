@@ -1,0 +1,48 @@
+Gene Set	Description	Size	Expect	Ratio	P Value	FDR
+GO:0006082	organic acid metabolic process	236	13.803	2.6806	1.90E-08	0
+GO:0042133	neurotransmitter metabolic process	24	1.4037	7.8366	2.89E-08	0
+GO:0008652	cellular amino acid biosynthetic process	30	1.7546	6.8392	4.32E-08	0
+GO:0017144	drug metabolic process	235	13.744	3.4196	1.77E-14	6.90E-11
+GO:0044281	small molecule metabolic process	496	29.009	2.3441	4.59E-12	7.33E-09
+GO:0055114	oxidation-reduction process	365	21.348	2.6233	5.62E-12	7.33E-09
+GO:0019752	carboxylic acid metabolic process	225	13.159	2.8117	5.01E-09	4.2779E-06
+GO:0042136	neurotransmitter biosynthetic process	17	0.9943	10.058	5.47E-09	4.2779E-06
+GO:0043436	oxoacid metabolic process	234	13.686	2.7035	1.50E-08	0.000009806
+GO:0055086	nucleobase-containing small molecule metabolic process	232	13.569	2.5794	1.29E-07	0.0001
+GO:0042737	drug catabolic process	48	2.8073	4.9869	3.22E-07	0.0001
+GO:0072521	purine-containing compound metabolic process	183	10.703	2.7095	5.82E-07	0.0002
+GO:0016999	antibiotic metabolic process	37	2.164	5.5453	6.38E-07	0.0002
+GO:1901605	alpha-amino acid metabolic process	66	3.8601	4.145	7.51E-07	0.0002
+GO:0009126	purine nucleoside monophosphate metabolic process	119	6.9599	3.161	1.0192E-06	0.0002
+GO:0009167	purine ribonucleoside monophosphate metabolic process	119	6.9599	3.161	1.0192E-06	0.0002
+GO:0016053	organic acid biosynthetic process	77	4.5034	3.7749	1.3964E-06	0.0003
+GO:0046394	carboxylic acid biosynthetic process	77	4.5034	3.7749	1.3964E-06	0.0003
+GO:0005984	disaccharide metabolic process	17	0.9943	8.0461	1.9121E-06	0.0004
+GO:0005975	carbohydrate metabolic process	173	10.118	2.6685	0.00000198	0.0004
+GO:0009161	ribonucleoside monophosphate metabolic process	126	7.3693	2.9854	2.7793E-06	0.0005
+GO:0006163	purine nucleotide metabolic process	166	9.7087	2.678	2.8877E-06	0.0005
+GO:0019637	organophosphate metabolic process	291	17.02	2.174	4.2367E-06	0.0007
+GO:0009123	nucleoside monophosphate metabolic process	130	7.6032	2.8935	4.7499E-06	0.0008
+GO:0006091	generation of precursor metabolites and energy	150	8.7729	2.7357	4.8261E-06	0.0008
+GO:0046112	nucleobase biosynthetic process	14	0.8188	8.549	5.2579E-06	0.0008
+GO:0009150	purine ribonucleotide metabolic process	162	9.4748	2.6386	5.9377E-06	0.0009
+GO:0000023	maltose metabolic process	10	0.5849	10.259	6.5591E-06	0.0009
+GO:0022900	electron transport chain	78	4.5619	3.5073	7.9359E-06	0.001
+GO:0045333	cellular respiration	78	4.5619	3.5073	7.9359E-06	0.001
+GO:0009112	nucleobase metabolic process	20	1.1697	6.8392	8.4831E-06	0.0011
+GO:0006753	nucleoside phosphate metabolic process	198	11.58	2.4179	9.1788E-06	0.0011
+GO:0009117	nucleotide metabolic process	198	11.58	2.4179	9.1788E-06	0.0011
+GO:1901607	alpha-amino acid biosynthetic process	26	1.5206	5.9186	9.1853E-06	0.0011
+GO:0044283	small molecule biosynthetic process	147	8.5975	2.6752	0	0.0013
+GO:0006188	IMP biosynthetic process	7	0.4094	12.213	0	0.0014
+GO:0009259	ribonucleotide metabolic process	169	9.8842	2.5293	0	0.0014
+GO:0044282	small molecule catabolic process	74	4.328	3.4658	0	0.0018
+GO:0019693	ribose phosphate metabolic process	173	10.118	2.4708	0	0.0019
+GO:0022904	respiratory electron transport chain	59	3.4507	3.7674	0	0.0024
+GO:0046034	ATP metabolic process	98	5.7317	2.966	0	0.0036
+GO:0007610	behavior	451	26.377	1.7818	0	0.004
+GO:0019098	reproductive behavior	102	5.9656	2.8497	0.0001	0.0058
+GO:0007218	neuropeptide signaling pathway	48	2.8073	3.9183	0.0001	0.0058
+GO:0007606	sensory perception of chemical stimulus	96	5.6147	2.8497	0.0001	0.0083
+GO:0010951	negative regulation of endopeptidase activity	35	2.047	4.3966	0.0001	0.0089
+GO:0006558	L-phenylalanine metabolic process	6	0.3509	11.399	0.0002	0.0093

@@ -4,6 +4,7 @@ library(DESeq2)
 library(data.table)
 library(ggrepel)
 library(ggthemes)
+library(cowplot)
 
 # load DESeq object, modeled ~ treatment + cage
 dds <- readRDS('./DE/DESeq.dds.RDS')
@@ -25,24 +26,22 @@ if (! file.exists("./DE/dds.shrink.dat")) {
   res <- fread("./DE/dds.shrink.dat")
 }
 
-res[, showLabel := ifelse(log2FoldChange>5 | (log2FoldChange<(-1.75)), TRUE, FALSE)]
+res[, showLabel := ifelse(baseMean > 50 & (log2FoldChange > 4 | (log2FoldChange < (-1.5))), TRUE, FALSE)]
 res[, plotLabel := ifelse(showLabel == FALSE, "", FlyBaseID)]
 
 # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5985746/
 # Plot DE with P-values
 DE.plot.labeled <- ggplot(data=res, mapping=aes(x=-log2FoldChange, y=-1*log10(padj))) + geom_point() + labs(x="Log2 Fold Change in starvation treatment", y="-Log10(P)") + geom_text_repel( aes(label=plotLabel)) + xlim(-8,5) + ylim(0,250)
 
-DE.plot.unlabeled <- ggplot(data=res, mapping=aes(x=-log2FoldChange, y=-1*log10(padj))) + geom_point() + labs(x="Log2 Fold Change in starvation treatment", y="-Log10(P)") + geom_text_repel(data=res[(log2FoldChange>5 & padj < 1e-50) | (log2FoldChange<(-1.75) & padj < 1e-50)], aes(label=plotLabel)) + xlim(-8,5) + ylim(0,250)
+volcano.basemeanOverFifty <- ggplot(data=res[baseMean >= 50], mapping=aes(x=-log2FoldChange, y=-1*log10(padj))) + geom_point() +
+labs(x="Log2 Fold Change in starvation treatment", y="-Log10(P)") +
+geom_vline(xintercept=0, linetype="dashed", alpha=0.5) +
+scale_x_continuous(breaks=c(-6,-4,-2,0,2,4)) +
+geom_text_repel(aes(label=plotLabel))
 
-ggsave(DE.plot.labeled, file="DE.svg")
+ggsave(volcano.basemeanOverFifty, file="volcano_basemeanOverFifty.svg", height=15, width=20, units="cm")
 
-# DE.plot <- ggplot(data=res, mapping=aes(x=log2FoldChange, y=-1*log10(padj))) + geom_point() + geom_point(data=res[padj <= quantile(padj, 0.05) & ( log2FoldChange <= quantile(log2FoldChange, 0.025) | log2FoldChange >= quantile(log2FoldChange, 0.975))], color="red")
 
-# Expressed more in Starvation treatment
-res[padj <= quantile(padj, 0.05) & log2FoldChange <= quantile(log2FoldChange, 0.025)]
-
-# Expressed more in fed treatment
-res[padj <= quantile(padj, 0.05) & log2FoldChange >= quantile(log2FoldChange, 0.975)]
 
 # 65.7% of genes (8099/12333) are differentially expressed at a Bonferroni-corrected P-value
 
@@ -60,14 +59,101 @@ pca <- plotPCA(transf, intgroup=c("treatment", "cage"), returnData=TRUE)
 # Extract % explained by PC1 and PC2 for label
 percentVar <- round(100 * attr(pca, "percentVar"))
 
-g <- ggplot(pca, aes(PC1, PC2, fill=treatment, shape=cage)) +
+expressionPCA_all <- ggplot(pca, aes(PC1, PC2, fill=treatment, shape=cage)) +
   geom_point(size=2, alpha=1) +
   xlab(paste0("PC1: ",percentVar[1],"% variance")) +
   ylab(paste0("PC2: ",percentVar[2],"% variance")) +
-  theme_few(16) +
-  scale_shape_manual(values=c(21,24), labels=c("Cage 1", "Cage 2")) +
+  scale_shape_manual(values=c(21,24), labels=c("Cage 1", "Cage 3")) +
   scale_fill_manual(values=c("black",NA), labels=c("Post-Starvation", "Peak Reproduction")) +
   guides(fill = guide_legend(override.aes = list(shape = 22, size=3))) +
-  labs(fill="Treatment", shape="Replicate", title="PCA for Expression Matrices")
+  labs(fill="Treatment", shape="Replicate")
 
-ggsave(g, file="pca.png", width=15, height=15, units="cm")
+ggsave(expressionPCA, file="expressionPCA_all.svg", width=22, height=15, units="cm")
+
+gamete_formation_genes <- fread('./GO/gamete_formation_genes.txt')
+gamete_formation_genes[, FlyBaseID := tstrsplit(`User ID`, split="[:]")[2]]
+gamete_formation_genes <- gamete_formation_genes[,FlyBaseID]
+pca <- plotPCA(transf[gamete_formation_genes[gamete_formation_genes %in% rownames(transf)]], intgroup=c("treatment", "cage"), returnData=TRUE)
+percentVar <- round(100 * attr(pca, "percentVar"))
+
+
+gametePCA <- ggplot(pca, aes(PC1, PC2, fill=treatment, shape=cage)) +
+  geom_point(size=2, alpha=1) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) +
+  scale_shape_manual(values=c(21,24), labels=c("Cage 1", "Cage 3")) +
+  scale_fill_manual(values=c("black",NA), labels=c("Post-Starvation", "Peak Reproduction")) +
+  guides(fill = guide_legend(override.aes = list(shape = 22, size=3))) +
+  labs(fill="Treatment", shape="Replicate")
+
+ggsave(gametePCA, file="gametePCA.svg", width=22, height=15, units="cm")
+
+# oogenesis_genes <- readLines('FlyBase_GO_oogenesis_genes.txt')
+
+# Genes with "vitelline" in name on FlyBase
+vitelline_genes <- c("FBgn0003980","FBgn0003983","FBgn0014076","FBgn0086266","FBgn0003979","FBgn0085362")
+
+
+# Subset genes if desired with assay(transf)[FBIDsToConsider,]
+pca <- plotPCA(transf[vitelline_genes[vitelline_genes %in% rownames(transf)]], intgroup=c("treatment", "cage"), returnData=TRUE)
+
+# Extract % explained by PC1 and PC2 for label
+percentVar <- round(100 * attr(pca, "percentVar"))
+
+vitellinePCA <- ggplot(pca, aes(PC1, PC2, fill=treatment, shape=cage)) +
+  geom_point(size=2, alpha=1) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) +
+  scale_shape_manual(values=c(21,24), labels=c("Cage 1", "Cage 3")) +
+  scale_fill_manual(values=c("black",NA), labels=c("Post-Starvation", "Peak Reproduction")) +
+  guides(fill = guide_legend(override.aes = list(shape = 22, size=3))) +
+  labs(fill="Treatment", shape="Replicate")
+
+ggsave(vitellinePCA, file="expressionPCA_vitelline.svg", width=22, height=15, units="cm")
+
+# Phenotype of PC1 from vitelline genes:
+dt <- as.data.table(pca, keep.rownames=T)
+write.table(dt, file="./DE/vitelline_pca.tab", quote=F, row.names=F, col.names=T, sep="\t")
+
+
+
+
+
+chorion_genes <- c("FBgn0000361","FBgn0000355","FBgn0000286","FBgn0000356","FBgn0014466","FBgn0000642","FBgn0000359","FBgn0000358","FBgn0014464","FBgn0000427","FBgn0000357","FBgn0000360","FBgn0014465")
+
+
+pca <- plotPCA(transf[chorion_genes[chorion_genes %in% rownames(transf)]], intgroup=c("treatment", "cage"), returnData=TRUE)
+
+# Extract % explained by PC1 and PC2 for label
+percentVar <- round(100 * attr(pca, "percentVar"))
+
+chorion_pca <- ggplot(pca, aes(PC1, PC2, fill=treatment, shape=cage)) +
+  geom_point(size=2, alpha=1) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) +
+  scale_shape_manual(values=c(21,24), labels=c("Cage 1", "Cage 3")) +
+  scale_fill_manual(values=c("black",NA), labels=c("Post-Starvation", "Peak Reproduction")) +
+  guides(fill = guide_legend(override.aes = list(shape = 22, size=3))) +
+  labs(fill="Treatment", shape="Replicate")
+
+ggsave(chorion_pca, file="expressionPCA_chorion.svg", width=22, height=15, units="cm")
+
+# save GO lists
+
+# top 5% of genes, greatest log2FoldChange
+n_genes <- trunc(nrow(res)*0.05)
+
+base_set <- res[baseMean > 1]
+pre_starvation_genes <- res[baseMean > 1][order(-log2FoldChange)][1:n_genes]
+post_starvation_genes <- res[baseMean > 1][order(log2FoldChange)][1:n_genes]
+
+pre_starvation_genes[, gestaltID := paste("FLYBASE:", FlyBaseID, sep="")]
+post_starvation_genes[, gestaltID := paste("FLYBASE:", FlyBaseID, sep="")]
+base_set[, gestaltID := paste("FLYBASE:", FlyBaseID, sep="")]
+
+write.table(pre_starvation_genes[,gestaltID], file="GO/pre_starvation_GO_genes.txt", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(post_starvation_genes[,gestaltID], file="GO/post_starvation_GO_genes.txt", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(base_set[,gestaltID], file="GO/base_set_genes.txt", quote=F, sep="\t", row.names=F, col.names=F)
+
+
+#webgestalt.org for D.mel, ORA, geneontology, biological process, FlybaseID, reference set of genome protein-coding

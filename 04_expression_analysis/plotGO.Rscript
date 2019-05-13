@@ -1,0 +1,45 @@
+#!/usr/bin/env Rscript
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+
+pre_GO <- fread('./GO/pre_starvation_GO_results.txt')
+pre_GO[, treatment := "Peak Reproduction"]
+
+post_GO <- fread('./GO/post_starvation_GO_results.txt')
+post_GO[, treatment := "Post-Starvation"]
+
+pre_GO <- pre_GO[order(Ratio)]
+post_GO <- post_GO[order(Ratio)]
+
+pre_GO_order <- pre_GO[,Description]
+post_GO_order <- post_GO[,Description]
+
+pre_GO[, Description := factor(Description, levels=pre_GO_order)]
+post_GO[, Description := factor(Description, levels=post_GO_order)]
+
+dat <- rbindlist(list(pre_GO, post_GO))
+
+pre_GO[, FDR_group := cut(FDR, breaks=c(0, 0.01, 0.05, 1))]
+
+g.pre <- ggplot(pre_GO, mapping=aes(x=Description, y=Ratio)) + geom_bar(stat="identity", fill="gray70") + 
+coord_flip() +
+labs(x="", title="Peak Reproduction") +
+geom_text(y=0.2, hjust=0, color="black", aes(label=Description)) +
+theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+g.post <- ggplot(post_GO, mapping=aes(x=Description, y=Ratio)) + geom_bar(stat="identity", fill="gray70") +
+coord_flip() +
+labs(x="", title="Post-Starvation") +
+geom_text(y=0.2, hjust=0, color="black", aes(label=Description)) +
+theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+
+g.all <- plot_grid(g.pre, g.post, labels = c("A", "B"), align = "h", nrow=1, rel_widths=c(1,1))
+
+ggsave(g.all, file="GO_ratio.svg", width=20, height=25, units="cm")

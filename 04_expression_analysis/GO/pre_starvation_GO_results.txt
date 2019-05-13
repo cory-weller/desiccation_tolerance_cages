@@ -1,0 +1,46 @@
+Gene Set	Description	Size	Expect	Ratio	P Value	FDR
+GO:0007276	gamete generation	811	49.913	1.723	6.47E-08	0
+GO:0019953	sexual reproduction	896	55.144	1.6684	9.17E-08	0
+GO:0044703	multi-organism reproductive process	896	55.144	1.6684	9.17E-08	0
+GO:0022414	reproductive process	1004	61.791	1.6184	9.47E-08	0
+GO:0022412	cellular process involved in reproduction in multicellular organism	779	47.943	1.7312	9.71E-08	0
+GO:0051276	chromosome organization	523	32.188	2.3922	4.00E-14	1.56E-10
+GO:0007305	vitelline membrane formation involved in chorion-containing eggshell formation	12	0.7385	14.894	4.63E-13	4.53E-10
+GO:0030704	vitelline membrane formation	12	0.7385	14.894	4.63E-13	4.53E-10
+GO:0035803	egg coat formation	12	0.7385	14.894	4.63E-13	4.53E-10
+GO:0085029	extracellular matrix assembly	15	0.9232	11.915	4.45E-11	3.48E-08
+GO:0006325	chromatin organization	319	19.633	2.5468	2.81E-10	1.83E-07
+GO:0007304	chorion-containing eggshell formation	106	6.5237	3.9855	5.38E-10	3.00E-07
+GO:0030703	eggshell formation	108	6.6468	3.9117	8.35E-10	4.08E-07
+GO:0007292	female gamete generation	638	39.265	1.9101	7.21E-09	3.1316E-06
+GO:0051704	multi-organism process	1156	71.145	1.5461	1.93E-07	0.0001
+GO:0000278	mitotic cell cycle	426	26.218	2.0215	3.04E-07	0.0001
+GO:0000003	reproduction	1033	63.575	1.5729	4.09E-07	0.0001
+GO:0007049	cell cycle	690	42.466	1.7426	4.71E-07	0.0001
+GO:0006333	chromatin assembly or disassembly	42	2.5849	5.0293	7.17E-07	0.0001
+GO:0006323	DNA packaging	86	5.2928	3.5898	7.20E-07	0.0001
+GO:0048609	multicellular organismal reproductive process	896	55.144	1.614	7.65E-07	0.0001
+GO:0048477	oogenesis	585	36.003	1.8054	8.02E-07	0.0001
+GO:0022402	cell cycle process	514	31.634	1.8335	2.1747E-06	0.0004
+GO:0003006	developmental process involved in reproduction	744	45.789	1.6598	2.2527E-06	0.0004
+GO:0030707	ovarian follicle cell development	293	18.032	2.1628	2.5792E-06	0.0004
+GO:0043062	extracellular structure organization	61	3.7542	3.9955	2.6269E-06	0.0004
+GO:0002066	columnar/cuboidal epithelial cell development	294	18.094	2.1554	2.8102E-06	0.0004
+GO:0032504	multicellular organism reproduction	927	57.052	1.56	3.4691E-06	0.0005
+GO:0007281	germ cell development	665	40.927	1.6859	4.3636E-06	0.0006
+GO:0033044	regulation of chromosome organization	134	8.2469	2.7889	5.3295E-06	0.0007
+GO:0002064	epithelial cell development	325	20.002	2.0498	0.000005593	0.0007
+GO:0002065	columnar/cuboidal epithelial cell differentiation	305	18.771	2.0777	6.9801E-06	0.0009
+GO:0006338	chromatin remodeling	92	5.6621	3.179	8.9377E-06	0.0011
+GO:1903047	mitotic cell cycle process	310	19.079	2.0442	0	0.0012
+GO:0001672	regulation of chromatin assembly or disassembly	15	0.9232	7.5826	0	0.0015
+GO:0030198	extracellular matrix organization	46	2.831	4.2387	0	0.0015
+GO:0000280	nuclear division	280	17.232	2.0891	0	0.0015
+GO:1902275	regulation of chromatin organization	87	5.3544	3.175	0	0.0017
+GO:0007059	chromosome segregation	185	11.386	2.3714	0	0.0019
+GO:0051303	establishment of chromosome localization	27	1.6617	5.4161	0	0.0019
+GO:0007338	single fertilization	29	1.7848	5.0426	0	0.0034
+GO:0000819	sister chromatid segregation	121	7.4469	2.6857	0	0.0035
+GO:0016571	histone methylation	54	3.3234	3.6108	0.0001	0.0059
+GO:0018205	peptidyl-lysine modification	132	8.1239	2.4619	0.0001	0.0092
+GO:0006996	organelle organization	1383	85.116	1.3394	0.0002	0.0099

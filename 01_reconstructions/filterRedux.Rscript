@@ -1,8 +1,6 @@
 #!/usr/bin/env Rscript
 library(data.table)
 library(foreach)
-library(ggthemes)
-library(ggbeeswarm)
 library(cowplot)
 
 dat <- fread('zcat ./estimate_genomes/estimatePaths.tab.gz')
@@ -159,7 +157,7 @@ facet_grid(.~chromosome)+
 # g1 <- ggplot(dat.long, mapping=aes(x=chromosome, y=value, fill=variable)) + geom_boxplot(coef=1e10) + theme_few(12) +
 # scale_fill_manual(values=c("white","gray80","gray40")) + labs(x="Chromosome", y="Diploid Recombination Count", fill="Type")
 
-ggsave(g1, file="Figure_1A.svg", width=12, height=4, units="in")
+# ggsave(g1, file="Figure_1A.svg", width=12, height=4, units="in")
 
 
 # Get length distribution for 1B
@@ -191,7 +189,7 @@ facet_grid(.~chromosome) +
     axis.text.x=element_blank(),
     axis.ticks.x=element_blank())
 
-ggsave(g2, file="Figure_1B.svg",width=12, height=4, units="in")
+# ggsave(g2, file="Figure_1B.svg",width=12, height=4, units="in")
 
 
 g_F1 <- plot_grid(g1, g2, labels = c("A", "B"), align = "v", nrow=2, rel_widths=c(1,1))
@@ -215,21 +213,50 @@ lengths.all <- merge(lengths.total, lengths.filtered, all=T)
 lengths.all[is.na(filteredLength), filteredLength := 0]
 lengths.all[, filteredPercent := filteredLength/totalLength]
 
-g3 <- ggplot(data=lengths.all, mapping=aes(x=chromosome, y=filteredPercent)) + geom_jitter(size=1, alpha=0.4, shape=21) + theme_few(12) +
-labs(x="Chromosome", y="Percent of Chromosome Filtered due to\nShort Recombination Block Length")
 
 lengths.all[, idx := 1:.N]
 lengths.all[filteredPercent==0, jitteredPercent := filteredPercent+0.01*runif(1), by=idx]
 lengths.all[is.na(jitteredPercent), jitteredPercent := filteredPercent]
 
-ggplot(data=lengths.all, mapping=aes(x=filteredPercent, y=chromosome)) + geom_jitter(shape=21, alpha=0.4) + theme_few(12) +
-labs(x="Percent of Chromosome Filtered due to Short Recombination Block Length", y="Chromosome")
+g3 <- ggplot(data=lengths.all, mapping=aes(x=filteredPercent)) + geom_histogram(bins=100) +
+labs(x="Percent of Chromosome Filtered due to Short Recombination Block Length", y="Frequency (on square-root transformed axis)") +
+scale_y_continuous(trans="sqrt", breaks=c(1,10,100,1000))
 
-g3 <- ggplot(data=lengths.all, mapping=aes(x=filteredPercent)) + geom_histogram(bins=200) + theme_few(12) +
+
+myvec <- data.table(val=seq(0,1500,10))
+myvec[, N := 1:.N]
+myvec[, label := ifelse(val%%100==0, val, "")]
+
+g3 <- ggplot(data=lengths.all, mapping=aes(x=filteredPercent)) + geom_histogram(bins=100) +
+labs(x="Percent of Chromosome Filtered due to Short Recombination Block Length", y="Frequency") +
+scale_y_continuous(trans="sqrt", breaks=myvec$val, labels=myvec$label)
+
+ggsave(g3, file="missingDataAll.svg", width=20, height=25, units="cm")
+
+ggsave(g3 + facet_grid(chromosome~.), file="missingDataByChromosome.svg", width=15, height=20, units="cm")
+
+g3 <- ggplot(data=lengths.all, mapping=aes(x=filteredPercent)) + geom_histogram(bins=100) +
+labs(x="Percent of Chromosome Filtered due to Short Recombination Block Length", y="Frequency") +
+scale_y_continuous(trans="sqrt", breaks=c(1,10,seq(0,1500,100)))
+
+
+for(i in 1:length(myvec)) {
+(ifelse(myvec[i]%%100==0, i, ""))
+}
+
+seq(0,1400,10)%%100==0
+
+breaks=c(10,50,100,200,400,800,1200))
+
+
+
+g3 <- ggplot(data=lengths.all, mapping=aes(x=filteredPercent)) + geom_histogram(bins=200) +
 labs(x="Percent of Chromosome Filtered due to Short Recombination Block Length", y="Frequency (on square-root transformed axis)") + facet_grid(chromosome~.) + scale_y_continuous(trans="sqrt", breaks=seq(1,20,3)^2)
 
 
 ggsave(g3, file="Figure_2A.svg",width=12, height=8, units="in")
+
+
 
 # 40% have no filtering at all, 80% less than 5% filtered
 
@@ -262,4 +289,4 @@ geom_rect(data=inversions,  alpha=0.2, mapping=aes(xmin=x1, xmax=x2, ymin=0, yma
 scale_x_continuous(breaks=c(1e6, 5e6, 10e6, 15e6, 20e6, 25e6), labels=c("1 Mbp", "5 Mbp", "10 Mbp", "15 Mbp", "20 Mbp", "25 Mbp")) +
 labs(x="Window Position", y="Percent of Samples with Filtered Ancestry")
 
-ggsave(g4, file="Figure_2B.svg",width=12, height=8, units="in")
+ggsave(g4, file="Figure_3.svg",width=20, height=20, units="cm")

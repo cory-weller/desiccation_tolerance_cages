@@ -1,0 +1,87 @@
+User ID	Gene Symbol	Gene Name	Entrez Gene ID
+FLYBASE:FBgn0000140	asp	abnormal spindle	42946
+FLYBASE:FBgn0000182	BicC	Bicaudal C	34946
+FLYBASE:FBgn0000212	brm	brahma	39744
+FLYBASE:FBgn0000307	chif	chiffon	34974
+FLYBASE:FBgn0000356	Cp16	Chorion protein 16	39001
+FLYBASE:FBgn0000359	Cp36	Chorion protein 36	31787
+FLYBASE:FBgn0000392	cup	cup	33934
+FLYBASE:FBgn0000427	1-Dec	defective chorion 1	31691
+FLYBASE:FBgn0000541	E(bx)	Enhancer of bithorax	44811
+FLYBASE:FBgn0000810	fs(1)K10	female sterile (1) K10	47781
+FLYBASE:FBgn0000996	dup	double parked	47121
+FLYBASE:FBgn0002781	mod(mdg4)	modifier of mdg4	49228
+FLYBASE:FBgn0002873	mud	mushroom body defect	44839
+FLYBASE:FBgn0002901	mus304	mutagen-sensitive 304	40003
+FLYBASE:FBgn0002926	ndl	nudel	38738
+FLYBASE:FBgn0003023	otu	ovarian tumor	31789
+FLYBASE:FBgn0003124	polo	polo	40232
+FLYBASE:FBgn0003310	S	Star	33281
+FLYBASE:FBgn0003733	tor	torso	35717
+FLYBASE:FBgn0003979	Vm26Aa	Vitelline membrane 26Aa	33829
+FLYBASE:FBgn0003980	Vm26Ab	Vitelline membrane 26Ab	33827
+FLYBASE:FBgn0004650	fs(1)N	female sterile (1) Nasrat	45973
+FLYBASE:FBgn0004864	hop	hopscotch	32080
+FLYBASE:FBgn0005390	fs(1)M3	female sterile (1) M3	45994
+FLYBASE:FBgn0005596	yem	yemanuclein	43439
+FLYBASE:FBgn0010278	Ssrp	Structure specific recognition protein	37767
+FLYBASE:FBgn0010300	brat	brain tumor	35197
+FLYBASE:FBgn0010770	ppan	peter pan	42502
+FLYBASE:FBgn0011020	Sas-4	Spindle assembly abnormal 4	40859
+FLYBASE:FBgn0011692	pav	pavarotti	38515
+FLYBASE:FBgn0011761	dhd	deadhead	31444
+FLYBASE:FBgn0011826	Pp2B-14D	Protein phosphatase 2B at 14D	32624
+FLYBASE:FBgn0013756	Mtor	Megator	36264
+FLYBASE:FBgn0014076	Vm32E	Vitelline membrane 32E	34558
+FLYBASE:FBgn0014133	bif	bifocal	32119
+FLYBASE:FBgn0014464	Cp7Fa	Chorion protein a at 7F	3885650
+FLYBASE:FBgn0014465	Cp7Fb	Chorion protein b at 7F	31785
+FLYBASE:FBgn0014466	Cp7Fc	Chorion protein c at 7F	31786
+FLYBASE:FBgn0015477	Rme-8	Receptor mediated endocytosis 8	35939
+FLYBASE:FBgn0015799	Rbf	Retinoblastoma-family protein	31027
+FLYBASE:FBgn0015805	HDAC1	Histone deacetylase 1	38565
+FLYBASE:FBgn0020261	pcm	pacman	32935
+FLYBASE:FBgn0020306	dom	domino	45655
+FLYBASE:FBgn0021761	Nup154	Nucleoporin 154kD	34527
+FLYBASE:FBgn0021776	mira	miranda	42379
+FLYBASE:FBgn0026430	Grip84	Gamma-tubulin ring protein 84	32946
+FLYBASE:FBgn0026597	Axn	Axin	43565
+FLYBASE:FBgn0026598	Apc2	Adenomatous polyposis coli 2	42871
+FLYBASE:FBgn0028734	Fmr1	Fmr1	37528
+FLYBASE:FBgn0030268	Klp10A	Kinesin-like protein at 10A	32049
+FLYBASE:FBgn0033757	muskelin	muskelin	36386
+FLYBASE:FBgn0034098	krimp	krimper	36804
+FLYBASE:FBgn0035025	uri	unconventional prefoldin RPB5 interactor	37924
+FLYBASE:FBgn0036147	Plod	procollagen lysyl hydroxylase	39265
+FLYBASE:FBgn0036480	Cep135	Centrosomal protein 135kDa	39647
+FLYBASE:FBgn0036574	elg1	enhanced level of genomic instability 1	39770
+FLYBASE:FBgn0036715	Cad74A	Cadherin 74A	39936
+FLYBASE:FBgn0038167	Lkb1	Lkb1 kinase	41673
+FLYBASE:FBgn0039016	Dcr-1	Dicer-1	42693
+FLYBASE:FBgn0039227	polybromo	polybromo	42954
+FLYBASE:FBgn0039632	Cul5	Cullin 5	43434
+FLYBASE:FBgn0041252	Femcoat	femcoat	31367
+FLYBASE:FBgn0043854	slam	slow as molasses	33890
+FLYBASE:FBgn0052774	Muc4B	Mucin 4B	31368
+FLYBASE:FBgn0085362	Vml	Vitelline membrane-like	5740271
+FLYBASE:FBgn0086265	psd	palisade	33830
+FLYBASE:FBgn0086266	Vm26Ac	Vitelline membrane 26Aac	33828
+FLYBASE:FBgn0086655	jing	jing	35555
+FLYBASE:FBgn0086895	pea	peanuts	36561
+FLYBASE:FBgn0250753	kra	krasavietz	40680
+FLYBASE:FBgn0260780	wisp	wispy	32152
+FLYBASE:FBgn0260991	Incenp	Inner centromere protein	35649
+FLYBASE:FBgn0261004	asl	asterless	40682
+FLYBASE:FBgn0261016	clos	closca	5740204
+FLYBASE:FBgn0261385	scra	scraps	35696
+FLYBASE:FBgn0261524	lic	licorne	32257
+FLYBASE:FBgn0261574	kug	kugelei	40191
+FLYBASE:FBgn0261617	nej	nejire	43856
+FLYBASE:FBgn0262167	ana1	anastral spindle 1	42927
+FLYBASE:FBgn0262743	Fs(2)Ket	Female sterile (2) Ketel	35336
+FLYBASE:FBgn0266916	Cenp-C	Centromeric protein-C	41014
+FLYBASE:FBgn0267727	Pen	Pendulin	34338
+FLYBASE:FBgn0267790	rump	rumpelstiltskin	41138
+FLYBASE:FBgn0283442	vas	vasa	26067080
+FLYBASE:FBgn0283682	Ge-1	Ge-1	34541
+FLYBASE:FBgn0284220	Top2	Topoisomerase 2	35225

@@ -1,0 +1,161 @@
+library(data.table)
+library(foreach)
+library(ggplot2)
+
+# Load in expression counts
+dat <- fread('DE/dm3.featureCountMatrix')
+lengths <- fread('DE/dm3.genelength')
+gc_to_fb <- fread('dm3.GC_to_FB.txt', header=TRUE, col.names=c("GC_Annotation_ID", "current_id", "FB_id", "gene_symbol"), key=c("GC_Annotation_ID"))
+
+# add FB gene IDs
+lengths <- merge(lengths, gc_to_fb, by.x="AnnotationID", by.y="GC_Annotation_ID")
+lengths <- lengths[, c("FB_id","gene_symbol","Length")]
+
+dat <- merge(dat, lengths, by.x="GeneID", by.y="FB_id")
+
+  # Some (few) Annotation/Flybase IDs are repeated/mapping multiply, so we take the row
+  # For each Annotation/Flybase ID which the greatest total mapped reads across individuals,
+  # Removing 329 rows from the ~14,000 genes
+  sampleNames <- c(colnames(dat)[grepl("4CB", colnames(dat))], colnames(dat)[grepl("23HR", colnames(dat))])
+
+
+geneLengths <- dat$Length
+
+TPM_matrix <- foreach(sample=sampleNames, .combine="cbind") %do% {
+    counts <- dat[[sample]]
+    rates <- counts / geneLengths
+    TPM <- data.table((rates / sum(rates)) * 1e6)
+    setnames(TPM, sample)
+    return(TPM)
+}
+
+TPM_matrix.long <- melt(TPM_matrix)
+
+# TPM_matrix[,  apply(.SD, 1, function(x) sum(x == 0, na.rm=T)), .SDcols=filtered_samples]
+
+
+# Only include rows with nonzero values in at least 50 samples
+filtered_rows <- which(TPM_matrix[,  apply(.SD, 1, function(x) sum(x > 0, na.rm=T)), .SDcols=sampleNames] > 50)
+TPM_matrix <- TPM_matrix[filtered_rows]
+
+# Only include samples with nonzero values in >50% of remaining genes
+zeroCounts <- setDT(melt(TPM_matrix[, apply(.SD, 2, function(x) sum(x==0)), .SD=sampleNames]), keep.rownames=T)
+setnames(zeroCounts, c("sample","zeros"))
+filtered_samples <- zeroCounts[zeros < nrow(TPM_matrix)/2][,sample]
+
+TPM_matrix <- TPM_matrix[,(filtered_samples), with=F]
+
+TPM_matrix[,"GeneID" := dat[filtered_rows,GeneID]]
+setcolorder(TPM_matrix, c("GeneID", filtered_samples))
+
+TPM_matrix.long <- melt(TPM_matrix, measure.vars=filtered_samples, variable.name="sample", value.name="TPM")
+TPM_matrix.long[, treatment := tstrsplit(sample, "\\.")[1]]
+
+cvars <- TPM_matrix.long[, list("cvar"=sd(TPM, na.rm=T)/mean(TPM, na.rm=T)), by=list(treatment, GeneID)]
+
+dat.wide <- dcast(cvars, GeneID~treatment)
+dat.wide <- dat.wide[! is.na(`23HR`) & ! is.na(`4CB`)]
+
+dat.wide[, tot := sum(`23HR`, `4CB`, na.rm=T), by=GeneID]
+
+topTwentyConsistentGenes <- dat.wide[tot>0][order(tot)][1:20, GeneID]
+
+# Twenty genes with lowest sum of coefficient of varitaion:
+# SUBMITTED ID	NAME
+# FBgn0011284	Ribosomal protein S4
+# FBgn0261592	Ribosomal protein S6
+# FBgn0014026	Ribosomal protein L7A
+# FBgn0002607	Ribosomal protein L19
+# FBgn0010198	Ribosomal protein S15Aa
+# FBgn0020618	Receptor of activated protein kinase C 1
+# FBgn0014184	Ornithine decarboxylase antizyme
+# FBgn0036213	Ribosomal protein L10Ab
+# FBgn0003462	Superoxide dismutase
+# FBgn0003941	Ribosomal protein L40
+# FBgn0039857	Ribosomal protein L6
+# FBgn0037328	Ribosomal protein L35A
+# FBgn0261602	Ribosomal protein L8
+# FBgn0034968	Ribosomal protein L12
+# FBgn0013325	Ribosomal protein L11
+# FBgn0261593	Ribosomal protein S10b
+# FBgn0010408	Ribosomal protein S9
+# FBgn0024733	Ribosomal protein L10
+# FBgn0010078	Ribosomal protein L23
+# FBgn0003274	Ribosomal protein LP2
+
+topTwentyConsistentExpression <- TPM_matrix.long[GeneID %in% topTwentyConsistentGenes][, list("medianTPM"=median(TPM, na.rm=T)), by=list(sample)]
+
+# show difference in median TPM expression between treatments
+topTwentyConsistentExpression[, starvation := grepl("23HR", sample)]
+topTwentyConsistentExpression[, treatment := ifelse(starvation==TRUE, "Post-Starvation", "Peak Reproduction")]
+ggplot(data=topTwentyConsistentExpression, mapping=aes(x=treatment, y=medianTPM)) + geom_boxplot()
+
+TPM_dict <- topTwentyConsistentExpression[, c("sample","medianTPM")]
+setkey(topTwentyConsistentExpression, sample)
+
+TPM_matrix.long <- merge(TPM_matrix.long, TPM_dict)
+TPM_matrix.long[, adjLogTPM := log(TPM) - log(medianTPM)]
+
+# if(permute=TRUE) {
+#     TPM_matrix.long[, treatment := sample(c("23HR","4CB"), size=.N, replace=T), by=GeneID]
+# }
+
+# Remove infinite values
+TPM_matrix.long <- TPM_matrix.long[is.finite(adjLogTPM)]
+
+diffE <- TPM_matrix.long[, list("medianAdjTPM"=median(adjLogTPM, na.rm=T)), by=list(treatment,GeneID)]
+diffE.wide <- dcast(diffE, GeneID~treatment)
+diffE.wide[, delta := `23HR` - `4CB`]
+
+geneDict <- fread('FlyBase_Fields_download.txt')
+setnames(geneDict, c("GeneID", "GeneName"))
+
+diffE.wide <- merge(geneDict, diffE.wide, by="GeneID")
+diffE.wide.plot <- copy(diffE.wide)
+
+diffE.wide.plot[delta < 2 & delta >= 0 , GeneName := ""]
+diffE.wide.plot[delta > (-3) & delta <= 0 , GeneName := ""]
+diffE.wide.plot[GeneName=="-", GeneName := ""]
+
+
+
+ggplot(data=diffE.wide.plot, mapping=aes(x=`4CB`, y=`23HR`)) + geom_point(shape=21, alpha=0.3) + geom_abline()
+
++
+geom_text_repel(size=3, aes(label=GeneName))
+
+diffE.wide[order(delta)]
+
+ggplot(data=diffE.wide[`23HR` != 0 & `4CB` != 0][abs(delta) > 0.5], mapping=aes(x=`4CB`, y=`23HR`)) + geom_point(shape=21, alpha=0.3) + geom_abline()
+
+#
+
+
+ggplot(data=diffE.wide[`23HR` != 0 & `4CB` != 0], mapping=aes(x=`4CB`, y=`23HR`)) + geom_point(shape=21, alpha=0.3) + scale_x_log10() + scale_y_log10() + geom_abline()
+diffE.wide[`4CB` < 1e-3 & `23HR` > 1e-2]
+
+ggplot(data=diffE, mapping=aes(x=treatment, y=log2(medianAdjTPM), group=GeneID)) + geom_line(alpha=0.1)
+
+lm(data=TPM_matrix.long, value ~ GeneID + treatment)
+
+TPM_matrix.long[, list(sd(value, na.rm=T)/mean(value, na.rm=T)), by=GeneID]
+
+TPM_matrix.long[, cvar := sd(value)/mean(value), by=GeneID]
+
+
+
+TPM_matrix[, TPM_cvar := apply(.SD, 1, function(x) sd(x, na.rm=T)/mean(x,na.rm=T)), .SD=sampleNames][]
+TPM_matrix[, N_nonzero := apply(.SD, 1, function(x) sum(x > 0, na.rm=T)), .SD=sampleNames][]
+
+
+
+candidates <- TPM_matrix[N_nonzero>350][order(TPM_cvar)][1:10]
+candidates.long <- melt(candidates, measure.vars=sampleNames)
+candidates.long[, treatment := tstrsplit(variable, "\\.")[1]]
+ggplot(data=candidates.long, mapping=aes(x=treatment, y=value)) + geom_boxplot() + facet_wrap(.~GeneID)
+
+
+badcandidates <- TPM_matrix[N_nonzero>350][order(-TPM_sd)][1:10]
+badcandidates.long <- melt(candidates, measure.vars=sampleNames)
+badcandidates.long[, treatment := tstrsplit(variable, "\\.")[1]]
+ggplot(data=badcandidates.long, mapping=aes(x=treatment, y=value)) + geom_boxplot() + facet_wrap(.~GeneID)

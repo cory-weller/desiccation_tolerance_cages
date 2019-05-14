@@ -4,7 +4,7 @@
 library(data.table)
 library(Rsubread)
 
-bamFilePath <- "../03_map_rna/mapped_reads/"
+bamFilePath <- "../03_map_rna/mapped_reads/iMapSplice/"
 gtfFilePath <- "dm3.gtf"
 GC_to_FB_file <- "dm3.GC_to_FB.txt"
 
@@ -36,7 +36,7 @@ build_count_matrix <- function(feature_counts_RDS) {
   print("Building expression count matrix...")
   fc <- readRDS(feature_counts_RDS)
   counts <- data.table(fc[[1]])
-  setnames(counts, unlist(tstrsplit(unlist(tstrsplit(colnames(counts), split=".mapped.")[2]), split=".rg.")[1]))
+  setnames(counts, unlist(tstrsplit(unlist(tstrsplit(colnames(counts), split=".iMapSplice.")[2]), split=".rg.")[1]))
   counts[, "GeneID" := fc[[2]][,"GeneID"]]
   setcolorder(counts, c("GeneID",colnames(counts)[1:(ncol(counts)-1)]))
   setnames(counts, "GeneID", "GC_Annotation_ID")
@@ -101,9 +101,9 @@ if(length(bad_samples) > 0) {
 
 # Structuring column data table
 coldata <- data.table(id=colnames(counts))
-coldata[, treatment := tstrsplit(id, split="[.]")[2]]
+coldata[, treatment := tstrsplit(id, split="[.]")[1]]
 coldata[, treatment := ifelse(treatment=="23HR", "post_starvation", "pre_starvation")]
-coldata[, cage := tstrsplit(id, split="[.]")[3]]
+coldata[, cage := tstrsplit(id, split="[.]")[2]]
 coldata[, type := "paired-end"]
 coldata[, id := NULL]
 coldata <- as.data.frame(coldata)

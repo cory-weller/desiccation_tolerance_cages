@@ -1,0 +1,44 @@
+#!/usr/bin/env Rscript
+
+library(data.table)
+library(foreach)
+library(cowplot)
+
+gwas <- rbindlist(lapply(list.files(pattern='chr..vitelline.gwas'), fread))
+
+gwas <- gwas[n.obs > 150 & Score.pval < 0.1]
+
+gwas[chr %in% c("2R","3R"), plotcolor := "gray"]
+gwas[! chr %in% c("2R","3R"), plotcolor := "black"]
+
+max_2L <- max(gwas[chr=="2L",pos])
+max_2R <- max(gwas[chr=="2R",pos])
+max_3L <- max(gwas[chr=="3L",pos])
+max_3R <- max(gwas[chr=="3R",pos])
+
+
+gwas[chr == "2R", pos := pos + max_2L]
+gwas[chr == "3L", pos := pos + max_2L + max_2R]
+gwas[chr == "3R", pos := pos + max_2L + max_2R + max_3L]
+gwas[chr == "X", pos := pos + max_2L + max_2R + max_3L + max_3R]
+
+
+
+# max_2L <- max(gwas[chr=="2L",pos])
+# gwas[chr=="2R", pos := pos + max_2L]
+# gwas[chr %in% c("2L","2R"), chr := "2"]
+#
+# max_3L <- max(gwas[chr=="3L",pos])
+# gwas[chr=="3R", pos := pos + max_3L]
+# gwas[chr %in% c("3L","3R"), chr := "3"]
+
+g <- ggplot(gwas, mapping=aes(x=pos, y=-1*log10(Score.pval), color=plotcolor)) + geom_point(shape=21, alpha=1) +
+scale_color_manual(values=c("black","gray40")) +
+labs(x="Position along chromosome", y="-Log10(P)") +
+theme(panel.spacing = unit(0, "lines")) +
+theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+guides(color=FALSE)
+
+ggsave(g, file="vitelline_gwas_manhattanPlot.png", width=20, height=8, units="cm")

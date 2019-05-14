@@ -85,11 +85,19 @@ overlaps <- foverlaps(hetSites, exonic, type="within")[!is.na(cdsStart)]
 overlaps[, AnnotationID := tstrsplit(feature, split='["]')[2]]
 overlaps[, total := refCount+altCount]
 
+# add FBid
 
+FBids <- fread('dm3.GC_to_FB.txt', col.names=c("AnnotationID","FlyBaseID","converted_id","symbol"))
+setkey(FBids, AnnotationID)
+
+overlaps <- merge(overlaps, FBids[!duplicated(AnnotationID)], by.x="AnnotationID", by.y="AnnotationID")
 
 # only include genes with at least 25 individuals with observations at any SNP within the gene
 overlaps.highcount <- overlaps[AnnotationID %in% overlaps[, .N, by=AnnotationID][N>25][,AnnotationID]]
 
+overlaps.highcount[, TREATMENT := tstrsplit(sample, split="[-]")[1]]
+
+ggplot(overlaps.highcount[FlyBaseID=="FBgn0263395"], aes(x=TREATMENT, y=bias, color=TREATMENT)) + geom_jitter() + facet_grid(.~POS)
 
 # take gene with max summed read depth
 
@@ -115,6 +123,7 @@ overlaps.final[, c("type","feature","mapper","i.cdsStart","i.cdsStop","uniqueID"
 overlaps.final[, bias := refCount / total]
 
 overlaps.final.highcount <- overlaps.final[AnnotationID %in% overlaps.final[refCount>4 & altCount>4 & total > 20][, .N, by=list(AnnotationID,TREATMENT)][N > 10][, .N, by=AnnotationID][N==2][,AnnotationID]][refCount>4 & altCount>4 & total > 20]
+
 
 
 

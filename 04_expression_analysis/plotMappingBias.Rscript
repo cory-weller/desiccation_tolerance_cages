@@ -132,7 +132,6 @@ ggsave(g.all.bias, file="mapperDifferences.svg", width=27, height=8, units="cm")
 
 # Continue with ASE analysis
 
-
 readcounts_by_feature <- foverlaps(het_readcounts[mapper=="iMapSplice"], exons, type="within")[!is.na(cdsStart)]
 readcounts_by_feature[, id := 1:.N]
 setkey(readcounts_by_feature, AnnotationID)

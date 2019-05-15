@@ -1,0 +1,90 @@
+#!/usr/bin/env Rscript
+
+
+
+library(data.table)
+library(foreach)
+library(DESeq2)
+library(cowplot)
+
+# Get GWAS top hits
+
+
+gwas <- fread('../02_gwas/true.gwas', header=T)
+
+permutations <- lapply(c("../02_gwas/chr2.gwas","../02_gwas/chr3.gwas","../02_gwas/chrX.gwas"), function(x) fread(x))
+permutations <- rbindlist(permutations)
+permutations <- permutations[, .SD[which.min(V7)], by=V8]
+threshold <- quantile(permutations$V7, 0.05)
+
+gwas <- gwas[n.obs > 400 & Score.pval < threshold]
+remove(permutations)
+gc()
+
+# Get expression data for all individuals
+
+dds <- readRDS('./DE/DESeq.dds.RDS')
+transf <- vst(dds)
+
+geneNames <- rownames(assay(transf))
+
+dat <- data.table(assay(transf))
+sampleNames <- copy(colnames(dat))
+
+dat[, FlyBaseID := geneNames]
+expression <- melt(dat, measure.vars=sampleNames)
+expression[, variable := gsub("\\.", "-", variable)]
+
+# subset VCF to include genotypes at GWAS loci
+
+fwrite(gwas, file="gwasHits.dat", quote=F, col.names=F, row.names=F, sep="\t")
+
+# suspend R, get GWAS loci from VCF
+# grep -m 1 "^#CHROM" ../01_reconstructions/filtered_estimates/filtered.all.vcf > gwasLoci.vcf
+# grep -f <(cut -f 1-2 gwasHits.dat | sed 's/\t/\\s/g' | sed 's/^/^/g') ../01_reconstructions/filtered_estimates/filtered.all.vcf >> gwasLoci.vcf
+
+gwasGenotypes <- fread('gwasLoci.vcf', header=T, select=c("#CHROM","POS", gsub("\\.", "-", sampleNames)))
+setnames(gwasGenotypes, "#CHROM", "CHROM")
+genotypes <- melt(gwasGenotypes, measure.vars=gsub("\\.", "-", sampleNames))
+
+
+
+# Import exonic ranges from GTF file
+exons <- fread('dm3.gtf', select=c(1,3,4,5,9), header=F, col.names=c("chr","type","cdsStart","cdsStop","feature"))
+exons <- exons[type=="exon"]
+exons <- exons[chr %in% c("chr2L","chr2R","chr3L","chr3R","chrX")]
+exons[, chr := tstrsplit(chr, "chr")[2]]
+exons[, AnnotationID := tstrsplit(feature, split='["]')[2]]
+setnames(exons, "chr", "CHROM")
+setkey(exons, CHROM, cdsStart, cdsStop)
+exons[, feature := NULL]
+exons <- exons[!duplicated(exons)]
+
+
+FBids <- fread('dm3.GC_to_FB.txt', select=c(1,2,4), col.names=c("AnnotationID","FlyBaseID","symbol"))
+setkey(FBids, AnnotationID)
+
+exons.translated <- merge(exons, FBids, by.x="AnnotationID", by.y="AnnotationID")
+setkey(exons.translated, CHROM, cdsStart, cdsStop)
+# select FBid with greatest total read counts
+
+# Make genotypes mergeable with exons
+
+genotypes[, cdsStart := POS]
+genotypes[, cdsStop := POS]
+
+foverlaps(genotypes, exons.translated, type="within")
+
+setkey(readcounts.merged, sample, FlyBaseID, CHR, POS)
+
+readcounts.merged[, id := rleid(sample,FlyBaseID, CHR, POS)]
+
+
+
+# for each GWAS hit:
+
+# get individual genotype, grep ^chr\tPOS
+
+# select genes +/- 20 kb
+
+# model gene expression ~ genotype, cage, treatment

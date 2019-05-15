@@ -74,6 +74,10 @@ dat2[, indID2 := factor(indID2, levels=rev(valueOrder))]
 dat2[, iX := as.numeric(indID1)]
 dat2[, iY := as.numeric(indID2)]
 
+dat2[, comparison := ifelse(Treatment1 == Treatment2, "Within", "Between")]
+
+summary(t.test(data=dat2[iX <= abs(iY-672)], Relatedness~comparison))
+
 g2 <- ggplot(dat2[iX <= abs(iY-672)], mapping=aes(x=indID1, y=indID2, fill=Relatedness)) + geom_tile() + theme_void() + scale_fill_viridis(option="B")
 
 

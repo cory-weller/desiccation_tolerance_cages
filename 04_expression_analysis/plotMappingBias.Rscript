@@ -8,7 +8,6 @@ registerDoMC(cores=5)
 library(cowplot)
 
 
-
 get_het_sites <- function(sampleID) {
   het_fn <- paste("/scratch/caw5cv/desiccation_tolerance_cages/01_reconstructions/filtered_estimates/", sampleID, ".het", sep="")
   hetSites <- fread(het_fn, header=F, col.names=c("CHR","POS","GT"))
@@ -18,137 +17,167 @@ get_het_sites <- function(sampleID) {
   return(hetSites)
 }
 
-iMapSplice_files <- list.files(path="./ASE/iMapSplice/", pattern="*.readcounts.gz", full.names=T)
-
-RSubRead_files <- list.files(path="./ASE/RSubRead/", pattern="*.readcounts.gz", full.names=T)
-
-
 importReadCounts <- function(filename) {
   rc <- fread(cmd=paste('zcat ', filename, sep=""), header=T, select=c(1,2,6,7))
   setnames(rc, "contig", "CHR")
   setnames(rc, "position", "POS")
 }
 
-# get ASE read counts
-o <- foreach(i=iMapSplice_files, .combine="rbind", .errorhandling="remove") %dopar% {
-  filename <- basename(i)
-  sampleID <- unlist(strsplit(filename, split="[.]"))[1]
-  imap_rc <- importReadCounts(paste("./ASE/iMapSplice/", filename, sep=""))
-  rsubread_rc <- importReadCounts(paste("./ASE/RSubRead/", filename, sep=""))
-  if(! file.exists(paste("/scratch/caw5cv/desiccation_tolerance_cages/01_reconstructions/filtered_estimates/", sampleID, ".het", sep=""))) {
-    return(NULL)
+get_het_ReadCounts <- function(iMapSplice_files) {
+  if(! file.exists('./ASE/hetReadCounts.dat.gz')) {
+      o <- foreach(i=iMapSplice_files, .combine="rbind", .errorhandling="remove") %dopar% {
+        filename <- basename(i)
+        sampleID <- unlist(strsplit(filename, split="[.]"))[1]
+        imap_rc <- importReadCounts(paste("./ASE/iMapSplice/", filename, sep=""))
+        rsubread_rc <- importReadCounts(paste("./ASE/RSubRead/", filename, sep=""))
+        if(! file.exists(paste("/scratch/caw5cv/desiccation_tolerance_cages/01_reconstructions/filtered_estimates/", sampleID, ".het", sep=""))) {
+          return(NULL)
+        }
+        hetSites <- get_het_sites(sampleID)
+        imap_rc <- merge(imap_rc, hetSites, by.x=c("CHR","POS"), by.y=c("CHR","POS"))
+        imap_rc[, total := refCount + altCount]
+        imap_rc <- imap_rc[refCount>1 & altCount>1 & total > 5]
+        imap_rc[, mapper := "iMapSplice"]
+
+        rsubread_rc <- merge(rsubread_rc, hetSites, by.x=c("CHR","POS"), by.y=c("CHR","POS"))
+        rsubread_rc[, total := refCount + altCount]
+        rsubread_rc <- rsubread_rc[refCount>1 & altCount>1 & total > 5]
+        rsubread_rc[, mapper := "RSubRead"]
+
+        out <- rbindlist(list(imap_rc, rsubread_rc))
+        out[, "sample" := sampleID]
+        return(out)
+      }
+
+    o[, CHR := tstrsplit(CHR, "chr")[2]]
+    o[, GT := NULL]
+
+    gz <- gzfile("./ASE/hetReadCounts.dat.gz", "w")
+    write.table(o, gz, row.names=F, col.names=T, sep="\t", quote=F)
+    close(gz)
+    return(o)
+  } else {
+    o <- fread('zcat ./ASE/hetReadCounts.dat.gz')
+    return(o)
   }
-  hetSites <- get_het_sites(sampleID)
-  imap_rc <- merge(imap_rc, hetSites, by.x=c("CHR","POS"), by.y=c("CHR","POS"))
-  imap_rc[, total := refCount + altCount]
-  imap_rc <- imap_rc[refCount>1 & altCount>1 & total > 5]
-  imap_rc[, mapper := "iMapSplice"]
-
-  rsubread_rc <- merge(rsubread_rc, hetSites, by.x=c("CHR","POS"), by.y=c("CHR","POS"))
-  rsubread_rc[, total := refCount + altCount]
-  rsubread_rc <- rsubread_rc[refCount>1 & altCount>1 & total > 5]
-  rsubread_rc[, mapper := "RSubRead"]
-
-  out <- rbindlist(list(imap_rc, rsubread_rc))
-  out[, "sample" := sampleID]
-  return(out)
 }
 
-o[, CHR := tstrsplit(CHR, "chr")[2]]
+
+get_mapping_stats <- function(mapped_read_bam_files) {
+
+  o <- foreach(file=mapped_read_bam_files, .combine="rbind", .errorhandling="remove") %dopar% {
+    mapper <- unlist(strsplit(file, split="/"))[4]
+    filename <- basename(file)
+    sampleID <- unlist(strsplit(filename, split="[.]"))[1]
+    dat <- fread(cmd=paste("samtools idxstats ", file, sep=""), header=F, col.names=c("CHR","Length","Mapped", "Unmapped"))
+    dat[, sample := sampleID]
+    dat[, mapper := mapper]
+  }
+
+  o[CHR == "*", CHR := "Other"]
+  o[, totalReads := Mapped + Unmapped]
+
+  # Exclude those with fewer than 100k reads
+  goodSamples <- o[sample %in% o[, sum(Mapped + Unmapped), by=sample][V1 > 1e5]$sample]
+
+  #% mapped, # mapped per chrom
+  percentMapped <- goodSamples[, list(percent_mapped = sum(Mapped) / (sum(Mapped) + sum(Unmapped))), by=list(sample, mapper)]
+
+  percentMapped[, mapper := factor(mapper, levels=c("RSubRead","iMapSplice"))]
+
+  return(percentMapped)
+}
 
 
-exonic <- fread('dm3.gtf', select=c(1,3,4,5,9), header=F, col.names=c("chr","type","cdsStart","cdsStop","feature"))
-exonic <- exonic[type=="exon"]
-exonic <- exonic[chr %in% c("chr2L","chr2R","chr3L","chr3R","chrX")]
-exonic[, chr := tstrsplit(chr, "chr")[2]]
-setnames(exonic, "chr", "CHR")
-setkey(exonic, CHR, cdsStart, cdsStop)
+# Import raw readcounts at heterozygous sites
+iMapSplice_files <- list.files(path="./ASE/iMapSplice/", pattern="*.readcounts.gz", full.names=T)
+het_readcounts <- get_het_ReadCounts(iMapSplice_files)
+het_readcounts <- het_readcounts
 
-o[, cdsStop :=  POS]
-o[, cdsStart := POS]
-o[, id := 1:.N]
+# Import exonic ranges from GTF file
+exons <- fread('dm3.gtf', select=c(1,3,4,5,9), header=F, col.names=c("chr","type","cdsStart","cdsStop","feature"))
+exons <- exons[type=="exon"]
+exons <- exons[chr %in% c("chr2L","chr2R","chr3L","chr3R","chrX")]
+exons[, chr := tstrsplit(chr, "chr")[2]]
+exons[, AnnotationID := tstrsplit(feature, split='["]')[2]]
+setnames(exons, "chr", "CHR")
+setkey(exons, CHR, cdsStart, cdsStop)
+exons[, feature := NULL]
+exons <- exons[!duplicated(exons)]
 
-ids_within_ranges <- unique(foverlaps(o, exonic, type="within")[!is.na(cdsStart), id])
-hetSites <- o[id %in% ids_within_ranges]
+# Prepare read counts table for merging
+het_readcounts[, cdsStop :=  POS]
+het_readcounts[, cdsStart := POS]
+het_readcounts[, id := 1:.N]
 
-# write output
-write.table(hetSites[, ! c("GT","total","propRef","id","cdsStop","cdsStart")], file="./ASE/hetReadCounts.dat", quote=F, row.names=F, col.names=T, sep="\t")
-system('gzip ./ASE/hetReadCounts.dat')
+# Select read count loci that are exonic
+exonic_ids <- unique(foverlaps(het_readcounts, exons, type="within")[!is.na(cdsStart), id])
+exonic_bias_readcounts <- het_readcounts[id %in% exonic_ids]
+exonic_bias_readcounts[, mapper := factor(mapper, levels=c("RSubRead","iMapSplice"))]
 
-hetSites <- fread('zcat ./ASE/hetReadCounts.dat.gz')
-hetSites <- hetSites[mapper=="iMapSplice"]
-hetSites[, cdsStart := POS]
-hetSites[, cdsStop := POS]
-hetSites[, id := 1:.N]
+gA <- ggplot(exonic_bias_readcounts[refCount > 2 & altCount > 2 & total >= 15], aes(x=(refCount/total), color=CHR)) +
+geom_density() + facet_grid(.~mapper) +
+geom_vline(xintercept=0.5, linetype="dashed", alpha=0.5) +
+labs(x="Reference Allele Mapping Bias", y="Density") +
+scale_x_continuous(breaks=c(0, 0.25, 0.5, 0.75, 1), labels=c("0", "0.25", "0.5", "0.75", "1"))
 
-overlaps <- foverlaps(hetSites, exonic, type="within")[!is.na(cdsStart)]
-overlaps[, AnnotationID := tstrsplit(feature, split='["]')[2]]
-overlaps[, total := refCount+altCount]
+# Build proportion of mapped reads figure
+mapped_read_bam_files <- list.files("../03_map_rna/mapped_reads", recursive=T, pattern="*.bam$", full.names=T)
+mapping_stats <- get_mapping_stats(mapped_read_bam_files)
+gB <- ggplot(mapping_stats, mapping=aes(x=mapper, y=percent_mapped, group=sample)) + geom_line(alpha=0.3) + labs(x="RNA Read Mapper", y="Percent Reads Mapped")
 
-# add FBid
+g.all.bias <- plot_grid(gA, gB, labels = c("A", "B"), align = "h", rel_widths=c(2,1))
 
-FBids <- fread('dm3.GC_to_FB.txt', col.names=c("AnnotationID","FlyBaseID","converted_id","symbol"))
+ggsave(g.all.bias, file="mapperDifferences.svg", width=27, height=8, units="cm")
+
+# Continue with ASE analysis
+
+
+readcounts_by_feature <- foverlaps(het_readcounts[mapper=="iMapSplice"], exons, type="within")[!is.na(cdsStart)]
+readcounts_by_feature[, id := 1:.N]
+setkey(readcounts_by_feature, AnnotationID)
+
+FBids <- fread('dm3.GC_to_FB.txt', select=c(1,2,4), col.names=c("AnnotationID","FlyBaseID","symbol"))
 setkey(FBids, AnnotationID)
 
-overlaps <- merge(overlaps, FBids[!duplicated(AnnotationID)], by.x="AnnotationID", by.y="AnnotationID")
+readcounts.merged <- merge(readcounts_by_feature, FBids, allow.cartesian=T)
+
+# select FBid with greatest total read counts
+
+setkey(readcounts.merged, sample, FlyBaseID, CHR, POS)
+
+readcounts.merged[, id := rleid(sample,FlyBaseID, CHR, POS)]
+
+readcounts.merged.unique <- readcounts.merged[!duplicated(id)]
+readcounts.merged.unique[, c("type","cdsStart","cdsStop","i.cdsStop","i.cdsStart","id") := NULL]
 
 # only include genes with at least 25 individuals with observations at any SNP within the gene
-overlaps.highcount <- overlaps[AnnotationID %in% overlaps[, .N, by=AnnotationID][N>25][,AnnotationID]]
+overlaps.highcount <- readcounts.merged.unique[FlyBaseID %in% readcounts.merged.unique[, .N, by=FlyBaseID][N>=25][,FlyBaseID]]
+overlaps.highcount[, bias := refCount / total]
+
 
 overlaps.highcount[, TREATMENT := tstrsplit(sample, split="[-]")[1]]
+overlaps.highcount[, CAGE := tstrsplit(sample, split="[-]")[2]]
 
-ggplot(overlaps.highcount[FlyBaseID=="FBgn0263395"], aes(x=TREATMENT, y=bias, color=TREATMENT)) + geom_jitter() + facet_grid(.~POS)
+# ggplot(overlaps.highcount[FlyBaseID=="FBgn0263395"], aes(x=TREATMENT, y=bias, color=TREATMENT)) + geom_jitter() + facet_grid(.~POS)
 
 # take gene with max summed read depth
 
-singleSNP <- overlaps.highcount[, list("sumRD"=sum(total)), by=list(AnnotationID,POS)][, list("POS"=POS[which.max(sumRD)]), by=AnnotationID]
-setkey(singleSNP, AnnotationID, POS)
-setkey(overlaps.highcount, AnnotationID, POS)
+singleSNP <- overlaps.highcount[, list("sumRD"=sum(total)), by=list(FlyBaseID,POS)][, list("POS"=POS[which.max(sumRD)]), by=FlyBaseID]
+setkey(singleSNP, FlyBaseID, POS)
+setkey(overlaps.highcount, FlyBaseID, POS)
 
 overlaps.singleSNP <- merge(overlaps.highcount, singleSNP)
-overlaps.singleSNP[, uniqueID := rleid(AnnotationID,POS,sample)]
-overlaps.singleSNP <- overlaps.singleSNP[!duplicated(uniqueID)]
 
-overlaps.singleSNP[, comboID := rleid(AnnotationID,POS)]
-overlaps.singleSNP[, TREATMENT := tstrsplit(sample, split="[-]")[1]]
-overlaps.singleSNP[, CAGE := tstrsplit(sample, split="[-]")[2]]
 
-tmp <- overlaps.singleSNP[, .N, by=list(AnnotationID, POS,TREATMENT)][N>5][,.N, by=list(AnnotationID,POS)][N==2]
+tmp <- overlaps.singleSNP[, .N, by=list(FlyBaseID, POS,TREATMENT)][N>=5][,.N, by=list(FlyBaseID,POS)][N==2]
 
-setkey(tmp, AnnotationID, POS)
+setkey(tmp, FlyBaseID, POS)
 
 overlaps.final <- merge(overlaps.singleSNP, tmp)
 
-overlaps.final[, c("type","feature","mapper","i.cdsStart","i.cdsStop","uniqueID","comboID") := NULL]
-overlaps.final[, bias := refCount / total]
 
-overlaps.final.highcount <- overlaps.final[AnnotationID %in% overlaps.final[refCount>4 & altCount>4 & total > 20][, .N, by=list(AnnotationID,TREATMENT)][N > 10][, .N, by=AnnotationID][N==2][,AnnotationID]][refCount>4 & altCount>4 & total > 20]
-
-
-
-
-
-bias.bygroup <- overlaps.final.highcount[, list("meanBias"=mean(bias), "sdBias"=sd(bias), .N), by=list(AnnotationID, TREATMENT)]
-
-tmp <- dcast(bias.bygroup, AnnotationID ~ TREATMENT, value.var=c("meanBias","sdBias","N"))[!is.na(meanBias_4CB) & !is.na(meanBias_23HR)]
-crossZero <- tmp[(meanBias_23HR > 0.5 & meanBias_4CB < 0.5) | (meanBias_23HR < 0.5 & meanBias_4CB > 0.5)]
-crossZero[, delta := abs(meanBias_4CB - meanBias_23HR)]
-
-crossZero[order(-delta)]
-
-ggplot(overlaps.final[AnnotationID=="CG11129"][refCount>5 & altCount > 5], aes(x=TREATMENT, y=bias))  + geom_jitter()
-
-# ribosomal proteins?
-CG8495
-CG10071
-CG15442
-CG4863
-
-#
- 5:      CG15442     0.5862956    0.3988432   0.2945283  0.2552092     57    67
-
-
-reg <- overlaps.final.highcount[, list(
+reg <- overlaps.final[, list(
     "beta.estimate" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,1],
     "beta.SE" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,2],
     "beta.p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,4],
@@ -158,115 +187,99 @@ reg <- overlaps.final.highcount[, list(
     "fit.se" = predict.glm(glm(formula=cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial), se.fit=TRUE)$se.fit,
     "n_pre" = sum(TREATMENT=="4CB"),
     "n_post" = sum(TREATMENT=="23HR")
-), by=list(AnnotationID,POS)]
+), by=list(FlyBaseID,CHR,POS)]
 
-
-tmp <- reg[!duplicated(reg)][n_pre > 25 & n_post > 25]
-
-# Because predict.glm returns _both_ group standard errors, filter to only include the SE
-# that reflects the standard error different from the already-existing intercept estimate
-reg2 <- tmp[tmp[, .I[which.max(abs(intercept.SE - fit.se))], by=AnnotationID]$V1]
-
-
-reg2[, fit.estimate := intercept.estimate + beta.estimate]
-reg2[, fit.lower := fit.estimate - 1.96*fit.se]
-reg2[, fit.upper := fit.estimate + 1.96*fit.se]
-reg2[fit.lower <= 0 & fit.upper >= 0, post.ASE := FALSE]
-reg2[fit.lower > 0 | fit.upper < 0, post.ASE := TRUE]
-reg2[, intercept.upper := intercept.estimate + 1.96*intercept.SE]
-reg2[, intercept.lower := intercept.estimate - 1.96*intercept.SE]
-reg2[intercept.upper < 0 | intercept.lower > 0, pre.ASE := TRUE]
-reg2[is.na(pre.ASE), pre.ASE := FALSE]
-
-reg2[fit.upper < intercept.lower | intercept.upper < fit.lower]
-
-reg2[fit.upper < intercept.lower | intercept.upper < fit.lower][pre.ASE == TRUE & post.ASE == TRUE]
-# yields two hits for changes in
-# oderant-bindign protein
-# Alcohol dehydrogenase
-
-overlaps[ .SD[which.max(sum(total))], by=list(AnnotationID
-
-# for a given Annotation ID, pick the position with the greatest total read counts
-
-by=AnnotationID
+reg <- reg[fit.se != intercept.SE][!duplicated(FlyBaseID)]
+reg[, fit.estimate := intercept.estimate + beta.estimate]
+reg[, fit.lower := fit.estimate - 1.96*fit.se]
+reg[, fit.upper := fit.estimate + 1.96*fit.se]
+reg[fit.lower <= 0 & fit.upper >= 0, post.ASE := FALSE]
+reg[fit.lower > 0 | fit.upper < 0, post.ASE := TRUE]
+reg[, intercept.upper := intercept.estimate + 1.96*intercept.SE]
+reg[, intercept.lower := intercept.estimate - 1.96*intercept.SE]
+reg[intercept.upper < 0 | intercept.lower > 0, pre.ASE := TRUE]
+reg[is.na(pre.ASE), pre.ASE := FALSE]
 
 
 
-hetSites <- hetSites[, ! c("GT","total","propRef","id","cdsStop","cdsStart")]
-hetSites[, mapper := factor(mapper, levels=c("RSubRead", "iMapSplice"))]
-setnames(hetSites, "CHR", "Chromosome")
-hetSites[, total := refCount + altCount]
-hetSites[, propRef := refCount / total]
+seasonal <- fread('seasonal_clinal_snps/mel_all_paired20_2sample_4switch_noPA_caF_popyear.f_s.glm')
+clinal <- fread('seasonal_clinal_snps/mel_clinal_uniquepops.glm')
+seasonal_clinal <- merge(seasonal, clinal, by.x=c("chrom","pos"), by.y=c("chrom","pos"))
+remove(seasonal)
+remove(clinal)
+gc()
 
-gA <- ggplot(hetSites[refCount > 2 & altCount > 2 & total >= 15], aes(x=propRef, color=Chromosome)) + geom_density() + facet_grid(.~mapper) + geom_vline(xintercept=0.5, linetype="dashed", alpha=0.5) +
-labs(x="Reference Allele Mapping Bias", y="Density") + scale_x_continuous(breaks=c(0, 0.25, 0.5, 0.75, 1), labels=c("0", "0.25", "0.5", "0.75", "1"))
-
-
-# get mapped read counts
-
-iMapSpliceFiles <- list.files(path="../03_map_rna/mapped_reads/iMapSplice/", pattern="*.bam$", full.names=TRUE)
-RSubReadFiles <- list.files(path="../03_map_rna/mapped_reads/RSubRead/", pattern="*.bam$", full.names=TRUE)
-
-allFiles <- c(iMapSpliceFiles, RSubReadFiles)
+reg.merged <- merge(reg, seasonal_clinal, by.x=c("CHR","POS"), by.y=c("chrom","pos"))
+reg.merged[, clinal := ifelse(clinal.p < 0.05, TRUE, FALSE)]
+reg.merged[, seasonal := ifelse(seas.p < 0.05, TRUE, FALSE)]
 
 
-o <- foreach(file=allFiles, .combine="rbind", .errorhandling="remove") %dopar% {
-  mapper <- unlist(strsplit(file, split="/"))[4]
-  filename <- basename(file)
-  sampleID <- unlist(strsplit(filename, split="[.]"))[1]
-  dat <- fread(cmd=paste("samtools idxstats ", file, sep=""), header=F, col.names=c("CHR","Length","Mapped", "Unmapped"))
-  dat[, sample := sampleID]
-  dat[, mapper := mapper]
+# Pre ASE SNPs
+obs_preASE <- nrow(reg.merged[pre.ASE==T])
+
+# 20 / 271 observed seasonal
+obs_preASE_seasonal <- nrow(reg.merged[pre.ASE==T & seasonal==TRUE])
+seasonal_preASE_permutations <- foreach(i=1:10000, .combine="rbind") %dopar% {
+  data.table(reg.merged[sample(.N, size=obs_preASE)][seasonal==TRUE][, .N])
+}
+# 79 / 271 observed clinal
+obs_preASE_clinal <- nrow(reg.merged[pre.ASE==T & clinal==TRUE])
+clinal_preASE_permutations <- foreach(i=1:10000, .combine="rbind") %dopar% {
+  data.table(reg.merged[sample(.N, size=obs_preASE)][clinal==TRUE][, .N])
 }
 
-o[CHR == "*", CHR := "Other"]
-o[, totalReads := Mapped + Unmapped]
 
-# Exclude those with fewer than 100k reads
-goodSamples <- o[sample %in% o[, sum(Mapped + Unmapped), by=sample][V1 > 1e5]$sample]
+# Post ASE SNPs
+obs_postASE <- nrow(reg.merged[post.ASE==T])
 
-#% mapped, # mapped per chrom
-percentMapped <- goodSamples[, list(percent_mapped = sum(Mapped) / (sum(Mapped) + sum(Unmapped))), by=list(sample, mapper)]
-
-percentMapped[, mapper := factor(mapper, levels=c("RSubRead","iMapSplice"))]
-
-gB <- ggplot(percentMapped, mapping=aes(x=mapper, y=percent_mapped, group=sample)) + geom_line(alpha=0.3) + labs(x="RNA Read Mapper", y="Percent Reads Mapped")
-
-
-g.all <- plot_grid(gA, gB, labels = c("A", "B"), align = "h", rel_widths=c(2,1))
-
-ggsave(g.all, file="mapperDifferences.svg", width=27, height=8, units="cm")
-
-# need to subset exonic
-
-
-vcf <- fread('../01_reconstructions/filtered_estimates/filtered.all.vcf')
-sampleID <- "23HR-1-483"
-command <- paste("bcftools query -s ", sampleID, " -f '%CHROM\t%POS[\t%GT]\n' ../01_reconstructions/filtered_estimates/filtered.all.vcf.gz")
-bcftools query -s 23HR-1-483 -f '%CHROM\t%POS[\t%GT]\n' filtered.all.vcf.gz
-
-o <- fread(cmd=command, header=FALSE, col.names=c("CHROM","POS","GT"))
-
-dat <- fread(cmd="cut -f 1,2,20 filtered.all.vcf | grep -e '^#CHROM' -e '0/1' -e '1/0' ", header=F, col.names=c("CHROM","POS","GT"), skip="#CHROM")
-
-get_heterozygous_sites <- function(ID) {
-
-
+obs_postASE_seasonal <- nrow(reg.merged[post.ASE==T & seasonal==TRUE])
+seasonal_postASE_permutations <- foreach(i=1:10000, .combine="rbind") %dopar% {
+  data.table(reg.merged[sample(.N, size=obs_postASE)][seasonal==TRUE][, .N])
 }
 
-dat <- importReadCounts(iMapSplice_files[1])
-dat[,total := refCount + altCount]
-
-dat[, percent_ref := refCount/total]
-
-
-tabix filtered.all.vcf.gz 2L > filtered.all.2L.vcf
-tabix filtered.all.vcf.gz 2R > filtered.all.2R.vcf
-tabix filtered.all.vcf.gz 2L > filtered.all.2L.vcf
-tabix filtered.all.vcf.gz 2L > filtered.all.2L.vcf
+obs_postASE_clinal <- nrow(reg.merged[post.ASE==T & clinal==TRUE])
+clinal_postASE_permutations <- foreach(i=1:10000, .combine="rbind") %dopar% {
+  data.table(reg.merged[sample(.N, size=obs_postASE)][clinal==TRUE][, .N])
+}
 
 
-dat[,c("V2","V587")][V587 %like% "0/1" | V587 %like% "1/0"]
 
-bcftools query -s 23HR-1-483 filtered.all.vcf.gz
+# Reversed ASE SNPs
+obs_reversal <- nrow(reg.merged[(intercept.upper < 0 & fit.lower > 0) | (fit.upper < 0 & intercept.lower > 0) ])
+
+obs_reversal_seasonal <- nrow(reg.merged[((intercept.upper < 0 & fit.lower > 0) | (fit.upper < 0 & intercept.lower > 0)) & seasonal==T])
+seasonal_reversal_permutations <- foreach(i=1:10000, .combine="rbind") %dopar% {
+  data.table(reg.merged[sample(.N, size=obs_reversal)][seasonal==TRUE][, .N])
+}
+
+
+obs_reversal_clinal <- nrow(reg.merged[((intercept.upper < 0 & fit.lower > 0) | (fit.upper < 0 & intercept.lower > 0)) & clinal==T])
+clinal_reversal_permutations <- foreach(i=1:10000, .combine="rbind") %dopar% {
+  data.table(reg.merged[sample(.N, size=obs_reversal)][clinal==TRUE][, .N])
+}
+
+#10,000 same-sized draws
+clinal_reversal_permutations[, ASEtype := "Reversal of ASE"]
+seasonal_reversal_permutations[, ASEtype := "Reversal of ASE"]
+clinal_postASE_permutations[, ASEtype := "Post-starvation ASE"]
+seasonal_postASE_permutations[, ASEtype := "Post-starvation ASE"]
+clinal_preASE_permutations[, ASEtype := "Pre-starvation ASE"]
+seasonal_preASE_permutations[, ASEtype := "Pre-starvation ASE"]
+
+clinal_reversal_permutations[,   SNPtype := "Clinal"]
+seasonal_reversal_permutations[, SNPtype := "seasonal"]
+clinal_postASE_permutations[,    SNPtype := "Clinal"]
+seasonal_postASE_permutations[,  SNPtype := "seasonal"]
+clinal_preASE_permutations[,     SNPtype := "Clinal"]
+seasonal_preASE_permutations[,   SNPtype := "seasonal"]
+
+g1 <- ggplot(seasonal_preASE_permutations, aes(x=V1)) + geom_histogram(binwidth=1) + geom_vline(xintercept=obs_preASE_seasonal, linetype="dashed", color="black") + labs(x="", y="Frequency")
+g2 <- ggplot(seasonal_postASE_permutations, aes(x=V1)) + geom_histogram(binwidth=1) + geom_vline(xintercept=obs_postASE_seasonal, linetype="dashed", color="black") + labs(x="", y="")
+g3 <- ggplot(seasonal_reversal_permutations, aes(x=V1)) + geom_histogram(binwidth=1) + geom_vline(xintercept=obs_reversal_seasonal, linetype="dashed", color="black") + labs(x="", y="")
+g4 <- ggplot(clinal_preASE_permutations, aes(x=V1)) + geom_histogram(binwidth=1) + geom_vline(xintercept=obs_preASE_clinal, linetype="dashed", color="black") + labs(x="Intersecting SNPs", y="Frequency")
+g5 <- ggplot(clinal_postASE_permutations, aes(x=V1)) + geom_histogram(binwidth=1) + geom_vline(xintercept=obs_postASE_clinal, linetype="dashed", color="black") + labs(x="Intersecting SNPs", y="")
+g6 <- ggplot(clinal_reversal_permutations, aes(x=V1)) + geom_histogram(binwidth=1) + geom_vline(xintercept=obs_reversal_clinal, linetype="dashed", color="black") + labs(x="Intersecting SNPs", y="")
+
+g.all.enrichment <- plot_grid(g1, g2, g3, g4, g5, g6, labels = c("A", "B","C","D","E","F","G"), align = "h", nrow=2)
+
+ggsave(g.all.enrichment, file="enrichment.svg", width=20, height=15, units="cm")

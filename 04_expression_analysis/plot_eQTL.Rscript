@@ -6,6 +6,8 @@ library(data.table)
 library(foreach)
 library(DESeq2)
 library(cowplot)
+library(doMC)
+registerDoMC(cores=5)
 
 # Get GWAS top hits
 
@@ -32,12 +34,12 @@ dat <- data.table(assay(transf))
 sampleNames <- copy(colnames(dat))
 
 dat[, FlyBaseID := geneNames]
-expression <- melt(dat, measure.vars=sampleNames)
-expression[, variable := gsub("\\.", "-", variable)]
+expression <- melt(dat, measure.vars=sampleNames, variable.name="sampleID", value.name="vst_expression")
+expression[, sampleID := gsub("\\.", "-", sampleID)]
 
-# subset VCF to include genotypes at GWAS loci
-
-fwrite(gwas, file="gwasHits.dat", quote=F, col.names=F, row.names=F, sep="\t")
+if(! file.exists("gwasHits.dat")) {
+  fwrite(gwas, file="gwasHits.dat", quote=F, col.names=F, row.names=F, sep="\t")
+}
 
 # suspend R, get GWAS loci from VCF
 # grep -m 1 "^#CHROM" ../01_reconstructions/filtered_estimates/filtered.all.vcf > gwasLoci.vcf
@@ -45,7 +47,11 @@ fwrite(gwas, file="gwasHits.dat", quote=F, col.names=F, row.names=F, sep="\t")
 
 gwasGenotypes <- fread('gwasLoci.vcf', header=T, select=c("#CHROM","POS", gsub("\\.", "-", sampleNames)))
 setnames(gwasGenotypes, "#CHROM", "CHROM")
-genotypes <- melt(gwasGenotypes, measure.vars=gsub("\\.", "-", sampleNames))
+genotypes <- melt(gwasGenotypes, measure.vars=gsub("\\.", "-", sampleNames), variable.name="sampleID", value.name="GT")
+genotypes[GT == "0/0", refDosage := 2]
+genotypes[GT %in% c("0/1","1/0"), refDosage := 1]
+genotypes[GT == "1/1", refDosage := 0]
+genotypes[GT %like% "[.]", refDosage := NA]
 
 
 
@@ -64,20 +70,80 @@ exons <- exons[!duplicated(exons)]
 FBids <- fread('dm3.GC_to_FB.txt', select=c(1,2,4), col.names=c("AnnotationID","FlyBaseID","symbol"))
 setkey(FBids, AnnotationID)
 
-exons.translated <- merge(exons, FBids, by.x="AnnotationID", by.y="AnnotationID")
-setkey(exons.translated, CHROM, cdsStart, cdsStop)
+exons <- merge(exons, FBids, by.x="AnnotationID", by.y="AnnotationID")
+setkey(exons, CHROM, cdsStart, cdsStop)
 # select FBid with greatest total read counts
 
-# Make genotypes mergeable with exons
+# gwas
+# genotypes
+# exons.translated
+# expression
 
-genotypes[, cdsStart := POS]
-genotypes[, cdsStop := POS]
+# For each row in gwas,
+#   Select neighbor gene(s) within +/- 20 kb of position
+#   For neighbor_gene in neighbor_genes,
+#     get expression ~ genotype + treatment + cage
 
-foverlaps(genotypes, exons.translated, type="within")
+distance_threshold <- 20000
 
-setkey(readcounts.merged, sample, FlyBaseID, CHR, POS)
+setkey(expression, FlyBaseID, sampleID)
+setkey(genotypes, CHROM, POS, sampleID)
 
-readcounts.merged[, id := rleid(sample,FlyBaseID, CHR, POS)]
+#
+
+o2 <- foreach(gwas_chr=gwas[,chr], gwas_pos=gwas[,pos], .errorhandling="remove") %do% {
+  # get genes neighboring this position
+  neighbor_genes <- unique(exons[CHROM==gwas_chr & (abs(cdsStart-gwas_pos) < distance_threshold)][,c("FlyBaseID","symbol")])
+  o1 <- foreach(neighbor_gene = neighbor_genes[,FlyBaseID], .errorhandling="remove") %do% {
+      # merge expression and genotypes at this locus
+    expression_by_genotype <- merge(expression[.(neighbor_gene)], genotypes[.(gwas_chr, gwas_pos)])
+    expression_by_genotype[, trt := tstrsplit(sampleID, split="[-]")[1]]
+    expression_by_genotype[, Treatment := ifelse(trt=="4CB", "Pre-Starvation", "Post-Starvation")]
+    expression_by_genotype[, Cage := tstrsplit(sampleID, split="[-]")[2]]
+
+    #ggplot(expression_by_genotype, aes(x=factor(refDosage), y=vst_expression)) + geom_boxplot()
+
+
+    # reg <- (lm(data=expression_by_genotype, vst_expression ~ as.factor(refDosage) + Treatment + Cage + as.factor(refDosage)*Treatment))
+
+    #reg <- (lm(data=expression_by_genotype, vst_expression ~ (refDosage) + Treatment + Cage + (refDosage)*Treatment))
+    reg <- (lm(data=expression_by_genotype, vst_expression ~ (refDosage) + Treatment + Cage))
+
+    dt <- data.table(anova(reg), keep.rownames=T)
+    # dt <- data.table(summary(reg)$coefficients)
+    # dt[,"Coefficient" := row.names(summary(reg)$coefficients)]
+    # dt[,"AIC" := AIC(reg)]
+    # setnames(dt, c("Estimate","SE","t","P","Coefficient","AIC"))
+    setnames(dt, c("coef", "df", "sumSq","meanSq","F","P"))
+    dt[, "CHR" := gwas_chr]
+    dt[, "POS" := gwas_pos]
+    dt[, "FlyBaseID" := neighbor_gene]
+
+    return(list(expression_by_genotype, dt))
+  }
+
+  expression_data <- rbindlist(lapply(o1, `[[`, 1))
+  regressions <- rbindlist(lapply(o1, `[[`, 2))
+  return(list(expression_data, regressions))
+}
+
+expression_data <- rbindlist(lapply(o2, `[[`, 1))
+regressions <- rbindlist(lapply(o2, `[[`, 2))
+
+regressions[, coef2 := as.numeric(as.factor(coef))]
+
+
+ggplot(expression_data[FlyBaseID %in% regressions[coef2==2 & P < 0.05][,FlyBaseID] & ! is.na(refDosage), list("exp"=mean(vst_expression)), by=list(Treatment, refDosage, FlyBaseID)], aes(x=Treatment, y=exp, group=factor(refDosage), color=factor(refDosage))) + geom_line() + facet_grid(.~FlyBaseID)
+
+
+
+
+ggplot(expression_data[FlyBaseID %in% regressions[Coefficient=="refDosage"][P < 0.05][,FlyBaseID]][!is.na(refDosage)], aes(x=factor(refDosage), y=vst_expression)) +
+geom_boxplot() +
+facet_grid(FlyBaseID~.) +
+labs(x="Reference Allele Dosage", y="Expression (VS-Transformed)")
+
+
 
 
 

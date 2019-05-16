@@ -141,6 +141,8 @@ setkey(FBids, AnnotationID)
 
 readcounts.merged <- merge(readcounts_by_feature, FBids, allow.cartesian=T)
 
+
+
 # select FBid with greatest total read counts
 
 setkey(readcounts.merged, sample, FlyBaseID, CHR, POS)
@@ -175,18 +177,20 @@ setkey(tmp, FlyBaseID, POS)
 
 overlaps.final <- merge(overlaps.singleSNP, tmp)
 
+# run regression in both directions for intercept
+overlaps.final[, TREATMENT := factor(TREATMENT, levels=c("23HR","4CB"))]
 
-reg <- overlaps.final[, list(
-    "beta.estimate" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,1],
-    "beta.SE" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,2],
-    "beta.p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,4],
-    "intercept.estimate" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,1],
-    "intercept.SE" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,2],
-    "intercept.p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,4],
-    "fit.se" = predict.glm(glm(formula=cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial), se.fit=TRUE)$se.fit,
-    "n_pre" = sum(TREATMENT=="4CB"),
-    "n_post" = sum(TREATMENT=="23HR")
-), by=list(FlyBaseID,CHR,POS)]
+# reg <- overlaps.final[, list(
+#     "beta.estimate" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,1],
+#     "beta.SE" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,2],
+#     "beta.p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,4],
+#     "intercept.estimate" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,1],
+#     "intercept.SE" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,2],
+#     "intercept.p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,4],
+#     "fit.se" = predict.glm(glm(formula=cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial), se.fit=TRUE)$se.fit,
+#     "n_pre" = sum(TREATMENT=="4CB"),
+#     "n_post" = sum(TREATMENT=="23HR")
+# ), by=list(FlyBaseID,CHR,POS, AnnotationID)]
 
 reg <- reg[fit.se != intercept.SE][!duplicated(FlyBaseID)]
 reg[, fit.estimate := intercept.estimate + beta.estimate]
@@ -200,6 +204,52 @@ reg[intercept.upper < 0 | intercept.lower > 0, pre.ASE := TRUE]
 reg[is.na(pre.ASE), pre.ASE := FALSE]
 
 
+
+overlaps.final[, TREATMENT := factor(TREATMENT, levels=c("4CB","23HR"))]
+reg1 <- overlaps.final[, list(
+    "beta.estimate" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,1],
+    "beta.SE" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,2],
+    "beta.p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[2,4],
+    "pre.estimate" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,1],
+    "pre.SE" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,2],
+    "pre.p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,4],
+    "n_pre" = sum(TREATMENT=="4CB"),
+    "n_post" = sum(TREATMENT=="23HR")
+), by=list(FlyBaseID,CHR,POS, AnnotationID)]
+
+
+
+overlaps.final[, TREATMENT := factor(TREATMENT, levels=c("23HR","4CB"))]
+reg2 <- overlaps.final[, list(
+    "post.estimate" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,1],
+    "post.SE" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,2],
+    "post.p" = summary(glm(cbind(refCount, altCount) ~ TREATMENT, family = quasibinomial))$coefficients[1,4]
+), by=list(FlyBaseID,CHR,POS, AnnotationID)]
+
+
+reg <- merge(reg1, reg2, by="FlyBaseID")
+reg[, pre.fdr := p.adjust(pre.p, method="fdr")]
+reg[, post.fdr := p.adjust(post.p, method="fdr")]
+
+write.table(reg, file="ASE/reg.dat", quote=F, row.names=F, col.names=T, sep="\t")
+
+
+# read annotated snpEff vcf
+annoVCF <- fread('snpEff/dm3.snpeff.edit.vcf', skip="chr2L", col.names=c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO","snpType","effect","AnnotationID"), sep="\t")
+# annoVCF <- merge(annoVCF, FBids, by.x="AnnotationID", by.y="AnnotationID")
+annoVCF[, CHROM := tstrsplit(CHROM, split="hr")[2]]
+annoVCF[,c("ID","REF","ALT","QUAL","FILTER","INFO") := NULL]
+setkey(annoVCF, CHROM, POS)
+
+dat <- merge(reg, annoVCF, by.x=c("CHR","POS"), by.y=c("CHROM","POS")
+
+dat2 <- merge(annoVCF[, list("nVariants"=.N, "NS"=sum(snpType=="missense_variant")/sum(snpType=="synonymous_variant")), by=AnnotationID], reg, by.x="AnnotationID", by.y="AnnotationID")
+
+
+
+dat[snpType %in% c("synonymous_variant", "missense_variant"), .N, by=list(snpType, FlyBaseID, sigBeta)][, .N, by=list(snpType, sigBeta)]
+
+###
 
 seasonal <- fread('seasonal_clinal_snps/mel_all_paired20_2sample_4switch_noPA_caF_popyear.f_s.glm')
 clinal <- fread('seasonal_clinal_snps/mel_clinal_uniquepops.glm')

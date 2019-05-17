@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #SBATCH --nodes 1
-#SBATCH --ntasks-per-node 1
-#SBATCH --mem 8G
-#SBATCH --time 0-1:00:00
-#SBATCH --partition largemem
+#SBATCH --ntasks-per-node 4
+#SBATCH --mem 24G
+#SBATCH --time 0-1:30:00
+#SBATCH --partition standard
 #SBATCH --account berglandlab
 #SBATCH --mail-type ALL
 #SBATCH --mail-user caw5cv@virginia.edu
@@ -25,9 +25,9 @@ library(GENESIS, quietly=TRUE)
 library(data.table, quietly=TRUE)
 library(SNPRelate, quietly=TRUE)
 library(gdsfmt, quietly=TRUE)
-library(doMC, quietly=TRUE)
-registerDoMC(5)
 library(foreach, quietly=TRUE)
+library(doMC, quietly=TRUE)
+registerDoMC(core=4)
 
 sessionInfo()
 
@@ -104,15 +104,13 @@ for(chromosome in c("chr2", "chr3", "chrX")) {
      dat[, chr := NULL]
      setkey(dat, variant.id)
      dat <- merge(dat, chrom_variant_key)
-    maxSNP <- dat[which.max(Score.Stat)]
-    maxSNP[, "iteration" := iteration]
-     write.table(maxSNP[, c("chr","pos","n.obs","Score","Score.SE","Score.Stat","Score.pval", "iteration")],
-        file=paste(chromosome, ".gwas", sep=""), row.names=F, col.names=F, sep="\t", quote=F, append=T)
+    gz1 <- gzfile(paste("permutations/", iteration, ".", chromosome, ".gwas.gz", sep=""), "w")
+     write.table(dat[n.obs >= 400][, c("chr","pos","n.obs","Score.pval")], gz1, row.names=F, col.names=F, sep="\t", quote=F, append=T)
+    close(gz1)
     remove(dat)
     remove(loco.grm)
     remove(snpIDs)
     gc()
-
 }
 
 close(geno)

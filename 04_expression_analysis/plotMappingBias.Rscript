@@ -177,6 +177,8 @@ setkey(tmp, FlyBaseID, POS)
 
 overlaps.final <- merge(overlaps.singleSNP, tmp)
 
+write.table(overlaps.final, file="ASE/table_for_regression.dat", quote=F, row.names=F, col.names=T, sep="\t")
+
 # run regression in both directions for intercept
 overlaps.final[, TREATMENT := factor(TREATMENT, levels=c("23HR","4CB"))]
 

@@ -95,6 +95,8 @@ readcounts <- fread('ASE/table_for_regression.dat')
 readcounts.ag <- readcounts[, list("nSamples"=.N,"totalRD"=sum(total),"meanRD"=mean(total), "medianRD"=median(total), sdRD=sd(total)), by=list(FlyBaseID)]
 
 reg <- fread('ASE/reg.dat')
+reg[, beta.fdr := p.adjust(beta.p, method="fdr")]
+
 m.merge <- merge(m, reg, by="FlyBaseID")
 m.merge <- merge(m.merge, readcounts.ag, by="FlyBaseID")
 m.merge[, TopTissue := gsub("Adult_", "", tissue)]
@@ -105,22 +107,20 @@ m.merge[pre.estimate > 0 & post.estimate < 0, oppSign := TRUE]
 
 ## Pre OR Post, but not both
 # ASE:
-# ((pre.fdr < FDR & post.FDR >= FDR) | (pre.fdr >= FDR & post.FDR < FDR))
-# No ASE:
-# (pre.fdr >= FDR & post.fdr >= FDR)
-pre <- foreach(FDR=c(0.5, 0.1, 0.05), .combine="rbind" ) %do% {
+# ((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.FDR < FDR))
+pre_OR_post <- foreach(FDR=c(0.5, 0.1, 0.05), .combine="rbind" ) %do% {
   foreach(tissue=unique(m.merge$TopTissue), .combine="rbind") %do% {
     m.merge[, list("FDR"=FDR,
                   "TopTissue"=tissue,
-                  "ASE_top" = sum(pre.fdr < FDR & TopTissue==tissue),
-                  "ASE_not_top" = sum(pre.fdr < FDR & TopTissue!=tissue),
-                  "not_ASE_top" = sum(pre.fdr >= FDR & TopTissue==tissue),
-                  "not_ASE_not_top" = sum(pre.fdr >= FDR & TopTissue!=tissue))]
+                  "ASE_top" = sum(((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.fdr < FDR)) & TopTissue==tissue),
+                  "ASE_not_top" = sum(((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.fdr < FDR)) & TopTissue!=tissue),
+                  "not_ASE_top" = sum(! ((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.FDR < FDR)) & TopTissue==tissue),
+                  "not_ASE_not_top" = sum(! ((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.FDR < FDR)) & TopTissue!=tissue))]
   }
 }
 
-o.pre <- foreach(i=1:nrow(pre), .combine="rbind") %do% {
-  tmp <- pre[i]
+o.pre_OR_post <- foreach(i=1:nrow(pre_OR_post), .combine="rbind") %do% {
+  tmp <- pre_OR_post[i]
   mat <- matrix(as.matrix(c(tmp$ASE_top, tmp$ASE_not_top, tmp$not_ASE_top, tmp$not_ASE_not_top)), nrow=2)
   res <- fisher.test(mat)
   tmp[, p := res$p.value]
@@ -131,20 +131,22 @@ o.pre <- foreach(i=1:nrow(pre), .combine="rbind") %do% {
 }
 
 
-
-post <- foreach(FDR=c(0.5, 0.1, 0.05), .combine="rbind" ) %do% {
+## Maintain_ASE
+# ASE:
+# (pre.fdr < FDR & post.fdr < FDR & oppSign==FALSE & beta.fdr < FDR)
+maintain <- foreach(FDR=c(0.5, 0.1, 0.05), .combine="rbind" ) %do% {
   foreach(tissue=unique(m.merge$TopTissue), .combine="rbind") %do% {
     m.merge[, list("FDR"=FDR,
                   "TopTissue"=tissue,
-                  "ASE_top" = sum(post.fdr < FDR & TopTissue==tissue),
-                  "ASE_not_top" = sum(post.fdr < FDR & TopTissue!=tissue),
-                  "not_ASE_top" = sum(post.fdr >= FDR & TopTissue==tissue),
-                  "not_ASE_not_top" = sum(post.fdr >= FDR & TopTissue!=tissue))]
+                  "ASE_top" = sum((pre.fdr < FDR & post.fdr < FDR & oppSign==FALSE & beta.fdr < FDR) & TopTissue==tissue),
+                  "ASE_not_top" = sum((pre.fdr < FDR & post.fdr < FDR & oppSign==FALSE & beta.fdr < FDR) & TopTissue!=tissue),
+                  "not_ASE_top" = sum(! (pre.fdr < FDR & post.fdr < FDR & oppSign==FALSE & beta.fdr < FDR)  & TopTissue==tissue),
+                  "not_ASE_not_top" = sum(! (pre.fdr < FDR & post.fdr < FDR & oppSign==FALSE & beta.fdr < FDR) & TopTissue!=tissue))]
   }
 }
 
-o.post <- foreach(i=1:nrow(post), .combine="rbind") %do% {
-  tmp <- post[i]
+o.maintain <- foreach(i=1:nrow(maintain), .combine="rbind") %do% {
+  tmp <- maintain[i]
   mat <- matrix(as.matrix(c(tmp$ASE_top, tmp$ASE_not_top, tmp$not_ASE_top, tmp$not_ASE_not_top)), nrow=2)
   res <- fisher.test(mat)
   tmp[, p := res$p.value]
@@ -154,9 +156,11 @@ o.post <- foreach(i=1:nrow(post), .combine="rbind") %do% {
   return(tmp)
 }
 
-# ggplot(o, aes(x=TopTissue, y=score, fill=factor(FDR), group=FDR)) + geom_bar(stat="identity", position="dodge")
 
-
+# Both significant ASE; significant beta
+m.merge[pre.fdr < 0.05 & post.fdr < 0.05 & oppSign==FALSE & beta.fdr < 0.05]
+# FBgn0010408 Odorant binding protein
+# FBgn0034470 Ribosomal Protien S9
 
 
 either <- foreach(FDR=c(0.5, 0.1, 0.05), .combine="rbind" ) %do% {
@@ -214,11 +218,11 @@ o.reversal <- foreach(i=1:nrow(reversal), .combine="rbind") %do% {
 
 
 o.either[, ASE_type := "Any ASE"]
-o.pre[, ASE_type := "Pre-Starvation ASE"]
-o.post[, ASE_type := "Post-Starvation ASE"]
+o.maintain[, ASE_type := "Maintain ASE"]
+o.pre_OR_post[, ASE_type := "ASE in One Treatment"]
 o.reversal[, ASE_type := "Reversal of ASE"]
 
-o.all <- rbindlist(list(o.either, o.pre, o.post, o.reversal))
+o.all <- rbindlist(list(o.either, o.maintain, o.pre_OR_post, o.reversal))
 
 
 
@@ -231,14 +235,17 @@ o.plotting[ ASE_top < 5 | ASE_not_top < 5, OR := 1]
 o.plotting[p < 0.05, signif := "*"]
 o.plotting[p < 0.01, signif := "**"]
 o.plotting[OR==1, signif := ""]
-o.plotting[, ASE_type := factor(ASE_type, levels=c("Any ASE", "Pre-Starvation ASE", "Post-Starvation ASE", "Reversal of ASE"))]
+o.plotting[, ASE_type := factor(ASE_type, levels=c("Any ASE", "Maintain ASE", "ASE in One Treatment", "Reversal of ASE"))]
 o.plotting[, TopTissue := gsub("_", " ", TopTissue)]
 o.plotting[, TopTissue := gsub("Female", " Female", TopTissue)]
-o.plotting[, TopTissue := factor(TopTissue, levels=o.plotting[ASE_type %like% "Post" & FDR==0.05][order(score), TopTissue])]
+o.plotting[, TopTissue := factor(TopTissue, levels=o.plotting[ASE_type %like% "Any" & FDR==0.05][order(score), TopTissue])]
+
+save.image(file="05172019.RData")
+load("05172019.RData")
 
 
 # quality checks with FDR
-ggplot(o.plotting, aes(x=TopTissue, y=log(OR), fill=FDR, group=FDR)) +
+ggplot(o.plotting[!is.na(p)], aes(x=TopTissue, y=log(OR), fill=FDR, group=FDR)) +
 geom_bar(stat="identity", position="dodge") +
 facet_grid(.~ASE_type) + coord_flip() +
 geom_hline(yintercept=0, linetype="dashed", alpha=0.6) +

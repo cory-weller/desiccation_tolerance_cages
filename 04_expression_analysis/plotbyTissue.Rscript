@@ -8,39 +8,36 @@
     setkey(res.dt, FlyBaseID)
 
 ### filter on lowly expressed genes
-    ggplot(data=res.dt, aes(x=log10(baseMean), y=log2FoldChange)) + geom_hex()
+    # ggplot(data=res.dt, aes(x=log10(baseMean), y=log2FoldChange)) + geom_hex()
 
     ### fdancy, don't use
         set.seed(1234)
         km <- kmeans(x=data.table(x=log10(res.dt$baseMean), y=res.dt$log2FoldChang), nstart=100, centers=2)
         res.dt[,k:=km$cluster]
-        ggplot(data=res.dt, aes(x=log10(baseMean), y=log2FoldChange)) + geom_hex() + facet_wrap(~k)
+        # ggplot(data=res.dt, aes(x=log10(baseMean), y=log2FoldChange)) + geom_hex() + facet_wrap(~k)
 
-        ggplot(data=res.dt, aes(log10(baseMean), group=k, fill=k)) + geom_density()
-        ggplot(data=res.dt, aes(log2FoldChange, group=k, fill=k)) + geom_density()
+        # ggplot(data=res.dt, aes(log10(baseMean), group=k, fill=k)) + geom_density()
+        # ggplot(data=res.dt, aes(log2FoldChange, group=k, fill=k)) + geom_density()
 
         res.dt <- res.dt[k==2] ### double check this on R build?
-        ggplot(data=res.dt, aes(x=log2FoldChange, y=-log10(padj))) + geom_point()
+        # ggplot(data=res.dt, aes(x=log2FoldChange, y=-log10(padj))) + geom_point()
 
     ### simple, use
         res.dt[,use:=baseMean>1]
-        ggplot(data=res.dt[use==T], aes(x=log2FoldChange, y=-log10(padj))) + geom_point()
+        # ggplot(data=res.dt[use==T], aes(x=log2FoldChange, y=-log10(padj))) + geom_point()
 
 
 ### new flyAtlas
     ### download link
-        if(! file.exists("Gelbart.2010.10.13.tar.gz") {
-          system("wget ftp://flybase.org/flybase/associated_files/Gelbart.2010.10.13.tar.gz")
-          system("tar -zxvf Gelbart.2010.10.13.tar.gz")
-        }
+      #  if(! file.exists("Gelbart.2010.10.13.tar.gz")) {
+      #    system("wget ftp://flybase.org/flybase/associated_files/Gelbart.2010.10.13.tar.gz")
+      #    system("tar -zxvf Gelbart.2010.10.13.tar.gz")
+      #  }
 
     ### load data
     	flyAtlas <- fread("HTD_FlyAtlas_Unique_2010-10-05.txt")
     	setnames(flyAtlas, c("V2", "V5", "V6"), c("FlyBaseID", "tissue", "mean"))
       flyAtlas <- flyAtlas[tissue %like% "Adult"]
-    	#flyAtlas[,lifeStage:=ifelse(grepl("Adult", V5), "adult",
-    	#							ifelse(grepl("Larval", V5), "larval", NA))]
-    	#flyAtlas <- flyAtlas[lifeStage=="adult"]
 
     ### rank
         set.seed(1234)
@@ -93,15 +90,24 @@
         facet_grid(~class, scales="free_x")
 
 
-reg.m <- merge(m, reg, by="FlyBaseID")
-
-
 # load in ASE table
+readcounts <- fread('ASE/table_for_regression.dat')
+readcounts.ag <- readcounts[, list("nSamples"=.N,"totalRD"=sum(total),"meanRD"=mean(total), "medianRD"=median(total), sdRD=sd(total)), by=list(FlyBaseID)]
+
 reg <- fread('ASE/reg.dat')
 m.merge <- merge(m, reg, by="FlyBaseID")
+m.merge <- merge(m.merge, readcounts.ag, by="FlyBaseID")
 m.merge[, TopTissue := gsub("Adult_", "", tissue)]
 m.merge[, tissue := NULL]
+m.merge[, oppSign := FALSE]
+m.merge[pre.estimate < 0 & post.estimate > 0, oppSign := TRUE]
+m.merge[pre.estimate > 0 & post.estimate < 0, oppSign := TRUE]
 
+## Pre OR Post, but not both
+# ASE:
+# ((pre.fdr < FDR & post.FDR >= FDR) | (pre.fdr >= FDR & post.FDR < FDR))
+# No ASE:
+# (pre.fdr >= FDR & post.fdr >= FDR)
 pre <- foreach(FDR=c(0.5, 0.1, 0.05), .combine="rbind" ) %do% {
   foreach(tissue=unique(m.merge$TopTissue), .combine="rbind") %do% {
     m.merge[, list("FDR"=FDR,
@@ -148,7 +154,7 @@ o.post <- foreach(i=1:nrow(post), .combine="rbind") %do% {
   return(tmp)
 }
 
-ggplot(o, aes(x=TopTissue, y=score, fill=factor(FDR), group=FDR)) + geom_bar(stat="identity", position="dodge")
+# ggplot(o, aes(x=TopTissue, y=score, fill=factor(FDR), group=FDR)) + geom_bar(stat="identity", position="dodge")
 
 
 
@@ -177,9 +183,6 @@ o.either <- foreach(i=1:nrow(either), .combine="rbind") %do% {
 
 
 #### Reversals
-
-
-m.merge[, oppSign := ifelse( (pre.estimate < 0 & post.estimate > 0) | (pre.estimate > 0 & post.estimate > 0), TRUE, FALSE)]
 
 
 reversal <- foreach(FDR=c(0.5, 0.1, 0.05), .combine="rbind" ) %do% {

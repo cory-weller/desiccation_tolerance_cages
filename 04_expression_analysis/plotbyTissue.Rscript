@@ -2,6 +2,8 @@
     library(data.table)
     library(foreach)
     library(cowplot)
+    library(doMC)
+    registerDoMC(cores=5)
 
 ### load DEseq output
     res.dt <- fread("DE/dds.shrink.dat")
@@ -114,8 +116,8 @@ pre_OR_post <- foreach(FDR=c(0.5, 0.1, 0.05), .combine="rbind" ) %do% {
                   "TopTissue"=tissue,
                   "ASE_top" = sum(((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.fdr < FDR)) & TopTissue==tissue),
                   "ASE_not_top" = sum(((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.fdr < FDR)) & TopTissue!=tissue),
-                  "not_ASE_top" = sum(! ((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.FDR < FDR)) & TopTissue==tissue),
-                  "not_ASE_not_top" = sum(! ((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.FDR < FDR)) & TopTissue!=tissue))]
+                  "not_ASE_top" = sum(! ((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.fdr < FDR)) & TopTissue==tissue),
+                  "not_ASE_not_top" = sum(! ((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.fdr < FDR)) & TopTissue!=tissue))]
   }
 }
 
@@ -125,8 +127,6 @@ o.pre_OR_post <- foreach(i=1:nrow(pre_OR_post), .combine="rbind") %do% {
   res <- fisher.test(mat)
   tmp[, p := res$p.value]
   tmp[, OR := res$estimate]
-  #tmp[, OR := (ASE_top * not_ASE_top) / (ASE_not_top * not_ASE_not_top)]
-  tmp[, score := (ASE_top / ASE_not_top) - (not_ASE_top / not_ASE_not_top)]
   return(tmp)
 }
 
@@ -151,8 +151,6 @@ o.maintain <- foreach(i=1:nrow(maintain), .combine="rbind") %do% {
   res <- fisher.test(mat)
   tmp[, p := res$p.value]
   tmp[, OR := res$estimate]
-  #tmp[, OR := (ASE_top * not_ASE_top) / (ASE_not_top * not_ASE_not_top)]
-  tmp[, score := (ASE_top / ASE_not_top) - (not_ASE_top / not_ASE_not_top)]
   return(tmp)
 }
 
@@ -180,8 +178,6 @@ o.either <- foreach(i=1:nrow(either), .combine="rbind") %do% {
   res <- fisher.test(mat)
   tmp[, p := res$p.value]
   tmp[, OR := res$estimate]
-  #tmp[, OR := (ASE_top * not_ASE_top) / (ASE_not_top * not_ASE_not_top)]
-  tmp[, score := (ASE_top / ASE_not_top) - (not_ASE_top / not_ASE_not_top)]
   return(tmp)
 }
 
@@ -206,8 +202,6 @@ o.reversal <- foreach(i=1:nrow(reversal), .combine="rbind") %do% {
   res <- fisher.test(mat)
   tmp[, p := res$p.value]
   tmp[, OR := res$estimate]
-  #tmp[, OR := (ASE_top * not_ASE_top) / (ASE_not_top * not_ASE_not_top)]
-  tmp[, score := (ASE_top / ASE_not_top) - (not_ASE_top / not_ASE_not_top)]
   return(tmp)
 }
 
@@ -238,10 +232,10 @@ o.plotting[OR==1, signif := ""]
 o.plotting[, ASE_type := factor(ASE_type, levels=c("Any ASE", "Maintain ASE", "ASE in One Treatment", "Reversal of ASE"))]
 o.plotting[, TopTissue := gsub("_", " ", TopTissue)]
 o.plotting[, TopTissue := gsub("Female", " Female", TopTissue)]
-o.plotting[, TopTissue := factor(TopTissue, levels=o.plotting[ASE_type %like% "Any" & FDR==0.05][order(score), TopTissue])]
+o.plotting[, TopTissue := factor(TopTissue, levels=o.plotting[ASE_type %like% "Any" & FDR==0.05 ][order(OR), TopTissue])]
 
-save.image(file="05172019.RData")
-load("05172019.RData")
+# save.image(file="05172019.RData")
+# load("05172019.RData")
 
 
 # quality checks with FDR
@@ -253,49 +247,63 @@ geom_text(aes(label=signif, y=log(OR) + 0.1*sign(log(OR))), position = position_
 labs(x="Tissue", y="Log(OR) of Genes in Tissue Group Exhibiting ASE")
 
 # Pretty plot for manuscript
-ggplot(o.plotting[FDR==0.05], aes(x=TopTissue, y=log(OR))) +
+g <- ggplot(o.plotting[FDR==0.05 & ASE_type == "Any ASE" & ! TopTissue %in% c("Testis","Male Accessory Gland")], aes(x=TopTissue, y=log(OR))) +
 geom_bar(stat="identity", position="dodge") +
-facet_grid(.~ASE_type) + coord_flip() +
+coord_flip() +
 geom_hline(yintercept=0, linetype="dashed", alpha=0.6) +
-geom_text(aes(label=signif, y=log(OR) + 0.1*sign(log(OR))), position = position_dodge(width = 1)) +
-labs(x="Tissue", y="Log(OR) of Genes in Tissue Group Exhibiting ASE")
+geom_text(aes(label=signif, y=log(OR) + 0.05*sign(log(OR))), position = position_dodge(width = 1)) +
+labs(x="Tissue", y="Log(OR) of Genes in Tissue Group Exhibiting ASE") + ylim(-1,1)
+
+ggsave(g, file="TissueOR.svg", width=20, height=12, units="cm")
+
+###
+
+# Clinal/Seasonal Permutations
 
 
-# m.merge[TopTissue=="Salivary_Gland"][oppSign==T][pre.fdr < 0.05 & post.fdr < 0.05]
-# FBgn0000559
-# FBgn0003274
-# FBgn0005593
-# FBgn0014869
-# FBgn0031066
-# FBgn0032987
-# FBgn0036213
-# FBgn0039300
-# FBgn0064225
-# FBgn0261597
-# 7 ribosomal proteins, a cycochrome C oxidase subunit, eukaryotic translation elongation factor 2, Phosphoglyceromutase 78
+seasonal <- fread('seasonal_clinal_snps/mel_all_paired20_2sample_4switch_noPA_caF_popyear.f_s.glm')
+clinal <- fread('seasonal_clinal_snps/mel_clinal_uniquepops.glm')
+seasonal_clinal <- merge(seasonal, clinal, by.x=c("chrom","pos"), by.y=c("chrom","pos"))
+remove(seasonal)
+remove(clinal)
+gc()
 
-# Not driven solely because salivary glands have higher base mean expression
-# > m.merge[, median(baseMean), by=TopTissue][order(V1)]
-#                         TopTissue       V1
-#  1:                        Testis 20.30784
-#  2:                       Hindgut 20.55732
-#  3:                        Midgut 22.26702
-#  4:                         Ovary 23.64422
-#  5:   Thoracic-Abdominal_Ganglion 24.78984
-#  6:            Malpighian_Tubules 25.54635
-#  7:                          Crop 28.17645
-#  8:                         Brain 28.86457
-#  9:          Male_Accessory_Gland 29.72920
-# 10:                           Eye 32.68269
-# 11:                Salivary_Gland 37.53321
-# 12:      VirginFemale_Spermatheca 37.95270
-# 13:                          Head 38.87897
-# 14:                      Fat_Body 40.81703
-# 15: InseminatedFemale_Spermatheca 43.25820
-# 16:                         Heart 53.70449
-# 17:                       Carcass 61.67789
 
-# Ribosomal protein L10Ab, essential gene during oogenesis that encodes a ribosomal protein of the large ribosome subunit
+
+m.merge2 <- merge(m.merge, seasonal_clinal, by.x=c("CHR.x","POS.x"), by.y=c("chrom","pos"))
+m.merge2[, clinal := ifelse(clinal.p < 0.05, TRUE, FALSE)]
+m.merge2[, seasonal := ifelse(seas.p < 0.05, TRUE, FALSE)]
+
+
+
+
+
+m.merge2[, ASE := ifelse(pre.fdr < 0.05 | post.fdr < 0.05, TRUE, FALSE)]
+obs_ASE <- nrow(m.merge2[ASE==T])
+
+obs_ASE_seasonal <- nrow(m.merge2[ASE==T & seasonal==TRUE])
+seasonal_permutations <- foreach(i=1:100000, .combine="rbind") %dopar% {
+  data.table(m.merge2[sample(.N, size=obs_ASE)][seasonal==TRUE][, .N])
+}
+
+
+obs_ASE_clinal <- nrow(m.merge2[ASE==T & clinal==TRUE])
+clinal_permutations <- foreach(i=1:100000, .combine="rbind") %dopar% {
+  data.table(m.merge2[sample(.N, size=obs_ASE)][clinal==TRUE][, .N])
+}
+
+
+
+
+g1 <- ggplot(seasonal_permutations, aes(x=V1/obs_ASE)) + stat_density(geom="line") + geom_vline(xintercept=obs_ASE_seasonal/obs_ASE, linetype="dashed", color="black") + labs(x="Seasonal × ASE Intersection", y="Density") + theme(axis.text.y=element_blank(), axis.ticks.y=element_blank())
+g2 <- ggplot(clinal_permutations, aes(x=V1/obs_ASE)) + stat_density(geom="line") + geom_vline(xintercept=obs_ASE_clinal/obs_ASE, linetype="dashed", color="black") + labs(x="Clinal × ASE Intersection", y="Density") + theme(axis.text.y=element_blank(), axis.ticks.y=element_blank())
+
+
+
+g.enrichment <- plot_grid(g1, g2, labels = c("A", "B"), align = "h", nrow=1)
+
+ggsave(g.enrichment, file="enrichment.svg", width=20, height=7, units="cm")
+
 
 
 

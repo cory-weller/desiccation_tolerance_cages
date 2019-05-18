@@ -292,8 +292,21 @@ clinal_permutations <- foreach(i=1:100000, .combine="rbind") %dopar% {
   data.table(m.merge2[sample(.N, size=obs_ASE)][clinal==TRUE][, .N])
 }
 
+obsClinal <- obs_ASE_clinal
+clinalPerms <- clinal_permutations$V1
+meanClinal <- mean(clinal_permutations$V1)
+
+sum(abs(obsClinal - meanClinal) > abs(clinalPerms - meanClinal))/100000
 
 
+obsSeasonal <- obs_ASE_seasonal
+seasonalPerms <- seasonal_permutations$V1
+meanSeasonal <- mean(seasonal_permutations$V1)
+
+sum(abs(obsSeasonal - meanSeasonal) > abs(seasonalPerms - meanSeasonal))/100000
+
+ecdf(clinal_permutations$V1)(obs_ASE_clinal)
+abs(ecdf(seasonal_permutations$V1)(obs_ASE_seasonal) - 0.5)*2
 
 g1 <- ggplot(seasonal_permutations, aes(x=V1/obs_ASE)) + stat_density(geom="line") + geom_vline(xintercept=obs_ASE_seasonal/obs_ASE, linetype="dashed", color="black") + labs(x="Seasonal × ASE Intersection", y="Density") + theme(axis.text.y=element_blank(), axis.ticks.y=element_blank())
 g2 <- ggplot(clinal_permutations, aes(x=V1/obs_ASE)) + stat_density(geom="line") + geom_vline(xintercept=obs_ASE_clinal/obs_ASE, linetype="dashed", color="black") + labs(x="Clinal × ASE Intersection", y="Density") + theme(axis.text.y=element_blank(), axis.ticks.y=element_blank())

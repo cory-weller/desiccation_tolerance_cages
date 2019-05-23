@@ -4,6 +4,7 @@ library(data.table)
 library(ggplot2)
 library(ggthemes)
 library(viridis)
+library(ape)
 
 # Plot all relatedness
 dat <- as.data.table(readRDS('./GRM/chr_all.GRM.rds'))

@@ -29,7 +29,9 @@ TPM_matrix <- foreach(sample=sampleNames, .combine="cbind") %do% {
     return(TPM)
 }
 
-TPM_matrix.long <- melt(TPM_matrix)
+TPM_matrix[, GeneID := dat[,GeneID]]
+
+TPM_matrix.long <- melt(TPM_matrix, measure.vars=sampleNames)
 
 # TPM_matrix[,  apply(.SD, 1, function(x) sum(x == 0, na.rm=T)), .SDcols=filtered_samples]
 

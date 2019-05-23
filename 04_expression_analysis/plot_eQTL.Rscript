@@ -131,6 +131,35 @@ expression_data <- rbindlist(lapply(o2, `[[`, 1))
 regressions <- rbindlist(lapply(o2, `[[`, 2))
 
 regressions[, coef2 := as.numeric(as.factor(coef))]
+expression_data[, Treatment := factor(Treatment, levels=c("Pre-Starvation","Post-Starvation"))]
+expression_data[refDosage==0, Genotype := "AA"]
+expression_data[refDosage==1, Genotype := "RA"]
+expression_data[refDosage==2, Genotype := "RR"]
+expression_data[, posLabel := paste("chr 3R: ", POS, sep="")]
+expression_data[, Genotype := factor(Genotype, levels=c("RR","RA","AA"))]
+
+gATPsynDeQTL <- ggplot(expression_data[FlyBaseID=="FBgn0016120" & !is.na(Genotype), list("exp"=mean(vst_expression)), by=list(Treatment, Genotype, FlyBaseID,posLabel)], aes(x=Treatment, y=exp, group=Genotype, color=Genotype, linetype=Genotype)) + geom_line() +
+facet_grid(.~posLabel) +
+labs(x="Treatment", y="ATPsynD Expression (normalized)") +
+scale_color_manual(values=c("black","black","black")) + scale_linetype_manual(values=c("dotted","dashed","solid"))
+
+ggplot(expression_data[FlyBaseID %in% c("FBgn0038678","FBgn0016120") & !is.na(Genotype), list("exp"=mean(vst_expression)), by=list(Treatment, Genotype, FlyBaseID,posLabel)], aes(x=Treatment, y=exp, group=Genotype, color=Genotype, linetype=Genotype)) + geom_line() +
+facet_grid(FlyBaseID~posLabel, scales="free") +
+labs(x="Treatment", y="Expression (normalized)") +
+scale_color_manual(values=c("black","black","black")) + scale_linetype_manual(values=c("dotted","dashed","solid"))
+
+
+ggplot(expression_data[FlyBaseID %in% c("FBgn0038678","FBgn0016120") & !is.na(Genotype), list("exp"=mean(vst_expression)), by=list(Treatment, Genotype, FlyBaseID,posLabel)], aes(x=Treatment, y=exp, group=Genotype, color=Genotype, linetype=Genotype)) + geom_line() +
+facet_grid(FlyBaseID~posLabel, scales="free") +
+labs(x="Treatment", y="Expression (normalized)") +
+scale_color_manual(values=c("black","black","black")) + scale_linetype_manual(values=c("dotted","dashed","solid"))
+
+
+
+
+ggsave(gATPsynDeQTL, file="ATPsynD_eQTL.svg", width=30, height=12, units="cm")
+(
+
 
 
 ggplot(expression_data[FlyBaseID %in% regressions[coef2==2 & P < 0.05][,FlyBaseID] & ! is.na(refDosage), list("exp"=mean(vst_expression)), by=list(Treatment, refDosage, FlyBaseID)], aes(x=Treatment, y=exp, group=factor(refDosage), color=factor(refDosage))) + geom_line() + facet_grid(.~FlyBaseID)

@@ -1,0 +1,85 @@
+### libraries
+    library(data.table)
+    library(foreach)
+    library(cowplot)
+    library(doMC)
+    registerDoMC(cores=5)
+
+
+
+    res.dt <- fread("DE/dds.shrink.dat")
+    setkey(res.dt, FlyBaseID)
+
+
+
+  flyAtlas <- fread("HTD_FlyAtlas_Unique_2010-10-05.txt")
+  setnames(flyAtlas, c("V2", "V5", "V6"), c("FlyBaseID", "tissue", "mean"))
+  flyAtlas <- flyAtlas[tissue %like% "Adult"]
+
+### rank
+    set.seed(1234)
+    flyAtlas.rank <- flyAtlas[, list(rank=rank(-mean, ties.method="random", na.last=T), mean=mean, tissue=tissue), by=list(FlyBaseID)]
+
+### aggregate for besties
+    flyAtlas.rank.ag <- flyAtlas.rank[rank==1,list(tissue=tissue, rank=1), list(FlyBaseID)]
+
+dat <-fread('DE/dm3.featureCountMatrix')
+
+
+
+dat <- fread('DE/dm3.featureCountMatrix')
+lengths <- fread('DE/dm3.genelength')
+gc_to_fb <- fread('dm3.GC_to_FB.txt', header=TRUE, col.names=c("GC_Annotation_ID", "current_id", "FB_id", "gene_symbol"), key=c("GC_Annotation_ID"))
+
+# add FB gene IDs
+lengths <- merge(lengths, gc_to_fb, by.x="AnnotationID", by.y="GC_Annotation_ID")
+lengths <- lengths[, c("FB_id","gene_symbol","Length")]
+
+dat <- merge(dat, lengths, by.x="GeneID", by.y="FB_id")
+
+  # Some (few) Annotation/Flybase IDs are repeated/mapping multiply, so we take the row
+  # For each Annotation/Flybase ID which the greatest total mapped reads across individuals,
+  # Removing 329 rows from the ~14,000 genes
+  sampleNames <- c(colnames(dat)[grepl("4CB", colnames(dat))], colnames(dat)[grepl("23HR", colnames(dat))])
+
+
+geneLengths <- dat$Length
+
+TPM_matrix <- foreach(sample=sampleNames, .combine="cbind") %do% {
+    counts <- dat[[sample]]
+    rates <- counts / geneLengths
+    TPM <- data.table((rates / sum(rates)) * 1e6)
+    setnames(TPM, sample)
+    return(TPM)
+}
+
+TPM_matrix[, GeneID := dat[,GeneID]]
+
+TPM_matrix.long <- melt(TPM_matrix, measure.vars=sampleNames)
+
+# TPM_matrix[,  apply(.SD, 1, function(x) sum(x == 0, na.rm=T)), .SDcols=filtered_samples]
+
+
+# Only include rows with nonzero values in at least 50 samples
+filtered_rows <- which(TPM_matrix[,  apply(.SD, 1, function(x) sum(x > 0, na.rm=T)), .SDcols=sampleNames] > 50)
+TPM_matrix <- TPM_matrix[filtered_rows]
+
+# Only include samples with nonzero values in >50% of remaining genes
+zeroCounts <- setDT(melt(TPM_matrix[, apply(.SD, 2, function(x) sum(x==0)), .SD=sampleNames]), keep.rownames=T)
+setnames(zeroCounts, c("sample","zeros"))
+filtered_samples <- zeroCounts[zeros < nrow(TPM_matrix)/2][,sample]
+
+TPM_matrix <- TPM_matrix[,(filtered_samples), with=F]
+
+TPM_matrix[,"GeneID" := dat[filtered_rows,GeneID]]
+setcolorder(TPM_matrix, c("GeneID", filtered_samples))
+
+
+TPM_matrix.long <- melt(TPM_matrix, measure.vars=filtered_samples, variable.name="sample", value.name="TPM")
+TPM_matrix.long[, treatment := tstrsplit(sample, "\\.")[1]]
+
+TPM.tissue <- merge(TPM_matrix.long, flyAtlas.rank.ag, by.x="GeneID", by.y="FlyBaseID")
+
+TPM.tissue.ag <- TPM.tissue[, list("Median_TPM"=median(TPM)), by=list(GeneID, treatment, tissue)]
+
+ggplot(TPM.tissue.ag, aes(x=treatment, y=Median_TPM, group=GeneID)) + geom_line() + facet_grid(.~tissue)

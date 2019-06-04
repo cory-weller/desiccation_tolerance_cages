@@ -1,0 +1,616 @@
+### libraries
+    library(data.table)
+    library(foreach)
+    library(cowplot)
+    library(doMC)
+    registerDoMC(cores=5)
+
+### load DEseq output
+    res.dt <- fread("DE/dds.shrink.dat")
+    setkey(res.dt, FlyBaseID)
+
+### filter on lowly expressed genes
+    # ggplot(data=res.dt, aes(x=log10(baseMean), y=log2FoldChange)) + geom_hex()
+
+    ### fdancy, don't use
+        set.seed(1234)
+        km <- kmeans(x=data.table(x=log10(res.dt$baseMean), y=res.dt$log2FoldChang), nstart=100, centers=2)
+        res.dt[,k:=km$cluster]
+        # ggplot(data=res.dt, aes(x=log10(baseMean), y=log2FoldChange)) + geom_hex() + facet_wrap(~k)
+
+        # ggplot(data=res.dt, aes(log10(baseMean), group=k, fill=k)) + geom_density()
+        # ggplot(data=res.dt, aes(log2FoldChange, group=k, fill=k)) + geom_density()
+
+        res.dt <- res.dt[k==2] ### double check this on R build?
+        # ggplot(data=res.dt, aes(x=log2FoldChange, y=-log10(padj))) + geom_point()
+
+    ### simple, use
+        res.dt[,use:=baseMean>1]
+        # ggplot(data=res.dt[use==T], aes(x=log2FoldChange, y=-log10(padj))) + geom_point()
+
+
+### new flyAtlas
+    ### download link
+      #  if(! file.exists("Gelbart.2010.10.13.tar.gz")) {
+      #    system("wget ftp://flybase.org/flybase/associated_files/Gelbart.2010.10.13.tar.gz")
+      #    system("tar -zxvf Gelbart.2010.10.13.tar.gz")
+      #  }
+
+    ### load data
+    	flyAtlas <- fread("HTD_FlyAtlas_Unique_2010-10-05.txt")
+    	setnames(flyAtlas, c("V2", "V5", "V6"), c("FlyBaseID", "tissue", "mean"))
+      flyAtlas <- flyAtlas[tissue %like% "Adult"]
+
+    ### rank
+        set.seed(1234)
+        flyAtlas.rank <- flyAtlas[, list(rank=rank(-mean, ties.method="random", na.last=T), mean=mean, tissue=tissue), by=list(FlyBaseID)]
+
+    ### aggregate for besties
+        flyAtlas.rank.ag <- flyAtlas.rank[rank==1,list(tissue=tissue, rank=1), list(FlyBaseID)]
+
+### merge
+    setkey(res.dt, FlyBaseID)
+    setkey(flyAtlas.rank.ag, FlyBaseID)
+
+    m <- merge(res.dt, flyAtlas.rank.ag)
+    m <- m[use==T]
+
+### aggregate
+    m[,tissue:=factor(tissue, levels=unique(m$tissue))]
+
+    ### up
+        m.ag.up <- foreach(x=seq(from=0, to=5, by=.01), .combine="rbind", .errorhandling="remove")%do%{
+
+            data.table(frac.obs=as.numeric(prop.table(table(m[log2FoldChange>x][padj<.05]$tissue))),
+                       n.obs=sum(table(m[log2FoldChange>x][padj<.05]$tissue)),
+                       frac.exp=as.numeric(prop.table(table(m$tissue))),
+                       n.exp=sum(table(m$tissue)),
+                       tissue=names(table(m[log2FoldChange>x][padj<.05]$tissue)),
+                       x=x,
+                       class="up")
+        }
+
+    ### down
+        m.ag.down <- foreach(x=seq(from=0, to=5, by=.01), .combine="rbind", .errorhandling="remove")%do%{
+
+            data.table(frac.obs=as.numeric(prop.table(table(m[-log2FoldChange > x][padj<.05]$tissue))),
+                       n.obs=sum(table(m[-log2FoldChange > x][padj<.05]$tissue)),
+                       frac.exp=as.numeric(prop.table(table(m$tissue))),
+                       n.exp=sum(table(m$tissue)),
+                       tissue=names(table(m[-log2FoldChange > x][padj<.05]$tissue)),
+                       x=-x,
+                       class="down")
+        }
+
+    ### combine
+        m.ag <- rbind(m.ag.up, m.ag.down)
+        m.ag[, p := 1 - pbinom(frac.obs*n.obs, n.obs, frac.exp)]
+
+    ggplot() +
+        geom_line(data=m.ag[(n.obs*frac.obs)>10], aes(x=x, y=frac.obs, group=tissue)) +
+        geom_point(data=m.ag[(n.obs*frac.obs)>10][p<.05], aes(x=x, y=frac.obs, color=-log10(p))) +
+        facet_grid(~class, scales="free_x")
+
+
+# load in ASE table
+readcounts <- fread('ASE/table_for_regression.dat')
+readcounts.ag <- readcounts[, list("nSamples"=.N,"totalRD"=sum(total),"meanRD"=mean(total), "medianRD"=median(total), sdRD=sd(total)), by=list(FlyBaseID)]
+
+reg <- fread('ASE/reg.dat')
+reg[, beta.fdr := p.adjust(beta.p, method="fdr")]
+
+m.merge <- merge(m, reg, by="FlyBaseID")
+m.merge <- merge(m.merge, readcounts.ag, by="FlyBaseID")
+m.merge[, TopTissue := gsub("Adult_", "", tissue)]
+m.merge[, tissue := NULL]
+m.merge[, oppSign := FALSE]
+m.merge[pre.estimate < 0 & post.estimate > 0, oppSign := TRUE]
+m.merge[pre.estimate > 0 & post.estimate < 0, oppSign := TRUE]
+
+## Pre OR Post, but not both
+# ASE:
+# ((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.FDR < FDR))
+pre_OR_post <- foreach(FDR=c(0.5, 0.1, 0.05), .combine="rbind" ) %do% {
+  foreach(tissue=unique(m.merge$TopTissue), .combine="rbind") %do% {
+    m.merge[, list("FDR"=FDR,
+                  "TopTissue"=tissue,
+                  "ASE_top" = sum(((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.fdr < FDR)) & TopTissue==tissue),
+                  "ASE_not_top" = sum(((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.fdr < FDR)) & TopTissue!=tissue),
+                  "not_ASE_top" = sum(! ((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.fdr < FDR)) & TopTissue==tissue),
+                  "not_ASE_not_top" = sum(! ((pre.fdr < FDR & post.fdr >= FDR) | (pre.fdr >= FDR & post.fdr < FDR)) & TopTissue!=tissue))]
+  }
+}
+
+o.pre_OR_post <- foreach(i=1:nrow(pre_OR_post), .combine="rbind") %do% {
+  tmp <- pre_OR_post[i]
+  mat <- matrix(as.matrix(c(tmp$ASE_top, tmp$ASE_not_top, tmp$not_ASE_top, tmp$not_ASE_not_top)), nrow=2)
+  res <- fisher.test(mat)
+  tmp[, p := res$p.value]
+  tmp[, OR := res$estimate]
+  return(tmp)
+}
+
+
+## Maintain_ASE
+# ASE:
+# (pre.fdr < FDR & post.fdr < FDR & oppSign==FALSE & beta.fdr < FDR)
+maintain <- foreach(FDR=c(0.5, 0.1, 0.05), .combine="rbind" ) %do% {
+  foreach(tissue=unique(m.merge$TopTissue), .combine="rbind") %do% {
+    m.merge[, list("FDR"=FDR,
+                  "TopTissue"=tissue,
+                  "ASE_top" = sum((pre.fdr < FDR & post.fdr < FDR & oppSign==FALSE & beta.fdr < FDR) & TopTissue==tissue),
+                  "ASE_not_top" = sum((pre.fdr < FDR & post.fdr < FDR & oppSign==FALSE & beta.fdr < FDR) & TopTissue!=tissue),
+                  "not_ASE_top" = sum(! (pre.fdr < FDR & post.fdr < FDR & oppSign==FALSE & beta.fdr < FDR)  & TopTissue==tissue),
+                  "not_ASE_not_top" = sum(! (pre.fdr < FDR & post.fdr < FDR & oppSign==FALSE & beta.fdr < FDR) & TopTissue!=tissue))]
+  }
+}
+
+o.maintain <- foreach(i=1:nrow(maintain), .combine="rbind") %do% {
+  tmp <- maintain[i]
+  mat <- matrix(as.matrix(c(tmp$ASE_top, tmp$ASE_not_top, tmp$not_ASE_top, tmp$not_ASE_not_top)), nrow=2)
+  res <- fisher.test(mat)
+  tmp[, p := res$p.value]
+  tmp[, OR := res$estimate]
+  return(tmp)
+}
+
+
+# Both significant ASE; significant beta
+m.merge[pre.fdr < 0.05 & post.fdr < 0.05 & oppSign==FALSE & beta.fdr < 0.05]
+# FBgn0010408 Odorant binding protein
+# FBgn0034470 Ribosomal Protien S9
+
+
+either <- foreach(FDR=c(0.5, 0.1, 0.05), .combine="rbind" ) %do% {
+  foreach(tissue=unique(m.merge$TopTissue), .combine="rbind") %do% {
+    m.merge[, list("FDR"=FDR,
+                  "TopTissue"=tissue,
+                  "ASE_top" = sum((pre.fdr < FDR | post.fdr < FDR)  & TopTissue==tissue),
+                  "ASE_not_top" = sum((pre.fdr < FDR | post.fdr < FDR) & TopTissue!=tissue),
+                  "not_ASE_top" = sum(! (pre.fdr < FDR | post.fdr < FDR) & TopTissue==tissue),
+                  "not_ASE_not_top" = sum(! (pre.fdr < FDR | post.fdr < FDR) & TopTissue!=tissue))]
+  }
+}
+
+o.either <- foreach(i=1:nrow(either), .combine="rbind") %do% {
+  tmp <- either[i]
+  mat <- matrix(as.matrix(c(tmp$ASE_top, tmp$ASE_not_top, tmp$not_ASE_top, tmp$not_ASE_not_top)), nrow=2)
+  res <- fisher.test(mat)
+  tmp[, p := res$p.value]
+  tmp[, OR := res$estimate]
+  return(tmp)
+}
+
+
+#### Reversals
+
+
+reversal <- foreach(FDR=c(0.5, 0.1, 0.05), .combine="rbind" ) %do% {
+  foreach(tissue=unique(m.merge$TopTissue), .combine="rbind") %do% {
+    m.merge[, list("FDR"=FDR,
+                  "TopTissue"=tissue,
+                  "ASE_top" = sum((pre.fdr < FDR & post.fdr < FDR & oppSign==TRUE)  & TopTissue==tissue),
+                  "ASE_not_top" = sum((pre.fdr < FDR & post.fdr < FDR & oppSign==TRUE) & TopTissue!=tissue),
+                  "not_ASE_top" = sum(! (pre.fdr < FDR & post.fdr < FDR & oppSign==TRUE) & TopTissue==tissue),
+                  "not_ASE_not_top" = sum(! (pre.fdr < FDR & post.fdr < FDR & oppSign==TRUE) & TopTissue!=tissue))]
+  }
+}
+
+o.reversal <- foreach(i=1:nrow(reversal), .combine="rbind") %do% {
+  tmp <- reversal[i]
+  mat <- matrix(as.matrix(c(tmp$ASE_top, tmp$ASE_not_top, tmp$not_ASE_top, tmp$not_ASE_not_top)), nrow=2)
+  res <- fisher.test(mat)
+  tmp[, p := res$p.value]
+  tmp[, OR := res$estimate]
+  return(tmp)
+}
+
+
+###
+
+
+
+
+o.either[, ASE_type := "Any ASE"]
+o.maintain[, ASE_type := "Maintain ASE"]
+o.pre_OR_post[, ASE_type := "ASE in One Treatment"]
+o.reversal[, ASE_type := "Reversal of ASE"]
+
+o.all <- rbindlist(list(o.either, o.maintain, o.pre_OR_post, o.reversal))
+
+
+
+o.all[, signif := ""]
+o.all[, FDR := factor(FDR, levels=c(0.05, 0.1, 0.5))]
+
+
+o.plotting <- copy(o.all)
+o.plotting[ ASE_top < 5 | ASE_not_top < 5, OR := 1]
+o.plotting[p < 0.05, signif := "*"]
+o.plotting[p < 0.01, signif := "**"]
+o.plotting[OR==1, signif := ""]
+o.plotting[, ASE_type := factor(ASE_type, levels=c("Any ASE", "Maintain ASE", "ASE in One Treatment", "Reversal of ASE"))]
+o.plotting[, TopTissue := gsub("_", " ", TopTissue)]
+o.plotting[, TopTissue := gsub("Female", " Female", TopTissue)]
+o.plotting[, TopTissue := factor(TopTissue, levels=o.plotting[ASE_type %like% "Any" & FDR==0.05 ][order(OR), TopTissue])]
+
+# save.image(file="05172019.RData")
+# load("05172019.RData")
+
+
+# quality checks with FDR
+ggplot(o.plotting[!is.na(p)], aes(x=TopTissue, y=log(OR), fill=FDR, group=FDR)) +
+geom_bar(stat="identity", position="dodge") +
+facet_grid(.~ASE_type) + coord_flip() +
+geom_hline(yintercept=0, linetype="dashed", alpha=0.6) +
+geom_text(aes(label=signif, y=log(OR) + 0.1*sign(log(OR))), position = position_dodge(width = 1)) +
+labs(x="Tissue", y="Log(OR) of Genes in Tissue Group Exhibiting ASE")
+
+# Pretty plot for manuscript
+g <- ggplot(o.plotting[FDR==0.05 & ASE_type == "Any ASE" & ! TopTissue %in% c("Testis","Male Accessory Gland")], aes(x=TopTissue, y=log(OR))) +
+geom_bar(stat="identity", position="dodge") +
+coord_flip() +
+geom_hline(yintercept=0, linetype="dashed", alpha=0.6) +
+geom_text(aes(label=signif, y=log(OR) + 0.05*sign(log(OR))), position = position_dodge(width = 1)) +
+labs(x="Tissue", y="Log(OR) of Genes in Tissue Group Exhibiting ASE") + ylim(-1,1)
+
+ggsave(g, file="TissueOR.svg", width=20, height=12, units="cm")
+
+###
+
+# Clinal/Seasonal Permutations
+
+
+seasonal <- fread('seasonal_clinal_snps/mel_all_paired20_2sample_4switch_noPA_caF_popyear.f_s.glm')
+clinal <- fread('seasonal_clinal_snps/mel_clinal_uniquepops.glm')
+seasonal_clinal <- merge(seasonal, clinal, by.x=c("chrom","pos"), by.y=c("chrom","pos"))
+remove(seasonal)
+remove(clinal)
+gc()
+
+
+
+m.merge2 <- merge(m.merge, seasonal_clinal, by.x=c("CHR.x","POS.x"), by.y=c("chrom","pos"))
+m.merge2[, clinal := ifelse(clinal.p < 0.05, TRUE, FALSE)]
+m.merge2[, seasonal := ifelse(seas.p < 0.05, TRUE, FALSE)]
+
+
+
+
+
+m.merge2[, ASE := ifelse(pre.fdr < 0.05 | post.fdr < 0.05, TRUE, FALSE)]
+
+obs_seasonal <- nrow(m.merge2[seasonal==T])
+
+obs_ASE_seasonal <- nrow(m.merge2[ASE==T & seasonal==TRUE])
+seasonal_permutations <- foreach(i=1:10000, .combine="rbind") %dopar% {
+  data.table(m.merge2[sample(.N, size=obs_seasonal)][ASE==TRUE][, .N])
+}
+
+obs_clinal <- nrow(m.merge2[clinal==T])
+
+obs_ASE_clinal <- nrow(m.merge2[ASE==T & clinal==TRUE])
+clinal_permutations <- foreach(i=1:10000, .combine="rbind") %dopar% {
+  data.table(m.merge2[sample(.N, size=obs_clinal)][ASE==TRUE][, .N])
+}
+
+obsClinal <- obs_ASE_clinal
+clinalPerms <- clinal_permutations$V1
+meanClinal <- mean(clinal_permutations$V1)
+
+sum(abs(obsClinal - meanClinal) > abs(clinalPerms - meanClinal))/10000
+
+
+obsSeasonal <- obs_ASE_seasonal
+seasonalPerms <- seasonal_permutations$V1
+meanSeasonal <- mean(seasonal_permutations$V1)
+
+sum(abs(obsSeasonal - meanSeasonal) > abs(seasonalPerms - meanSeasonal))/10000
+
+ecdf(clinal_permutations$V1)(obs_ASE_clinal)
+abs(ecdf(seasonal_permutations$V1)(obs_ASE_seasonal) - 0.5)*2
+
+g1 <- ggplot(seasonal_permutations, aes(x=V1/obs_seasonal)) + stat_density(geom="line") + geom_vline(xintercept=obs_ASE_seasonal/obs_seasonal, linetype="dashed", color="black") + labs(x="Seasonal × ASE Intersection", y="Density") + theme(axis.text.y=element_blank(), axis.ticks.y=element_blank())
+g2 <- ggplot(clinal_permutations, aes(x=V1/obs_clinal)) + stat_density(geom="line") + geom_vline(xintercept=obs_ASE_clinal/obs_clinal, linetype="dashed", color="black") + labs(x="Clinal × ASE Intersection", y="Density") + theme(axis.text.y=element_blank(), axis.ticks.y=element_blank())
+
+
+
+g.enrichment <- plot_grid(g1, g2, labels = c("A", "B"), align = "h", nrow=1)
+
+ggsave(g.enrichment, file="enrichment.svg", width=20, height=7, units="cm")
+
+
+
+
+
+get.fisher <- function(x) {
+  mat <- matrix(list(x[3], x[4], x[5], x[6]), nrow=2)
+  fisher.test(mat)
+}
+
+
+
+pre[, p := apply( fisher.test(as.matrix(ASE_top, ASE_not_top, not_ASE_top, not_ASE_not_top)), by=list(FDR,TopTissue)]
+
+    return(data.table(FDR, ASE_top, ASE_not_top, not_ASE_top, ASE_not_top))
+  }
+  dt <- dcast(m.merge[, .N, by=list(pre.fdr <= FDR,TopTissue) ], TopTissue~pre.fdr, value.var="N")
+  setnames(dt, c("FALSE","TRUE"), c("ASE","No_ASE"))
+  dt[, frac_ASE := ASE/sum(ASE)]
+  dt[, frac_non_ASE := No_ASE/sum(No_ASE)]
+  dt[, N_Tissue := sum(ASE, No_ASE), by=TopTissue]
+  dt[, N_
+  }
+}
+
+m.merge[, any := ifelse(beta.p < 0.05, TRUE, FALSE)]
+
+pre <- m.merge[, .N, by=list(pre.ASE, tissue)]
+pre[, frac := N/sum(N), by=pre.ASE]
+pre[, test := "pre"]
+setnames(pre, "pre.ASE", "ASE")
+
+post <- m.merge[, .N, by=list(post.ASE, tissue)]
+post[, frac := N/sum(N), by=post.ASE]
+post[, test := "post"]
+setnames(post, "post.ASE", "ASE")
+
+either <- m.merge[padj < 0.05, .N, by=list(any, tissue)]
+either[, frac := N/sum(N), by=any]
+setnames(either, "any", "ASE")
+either[, Tissue := gsub("Adult_", "", tissue)]
+
+
+both <- rbindlist(list(pre,post))
+both[, Tissue := gsub("Adult_", "", tissue)]
+
+#ggplot(both, aes(x=ASE, y=frac, color=tissue, group=tissue)) + geom_line() + facet_grid(.~test) + geom_text(data=both[ASE==T], aes(x=ASE + 1.2, y=frac, label=Tissue, hjust=0), size=3) + guides(color=FALSE)
+ggplot(either, aes(x=ASE, y=frac, color=tissue, group=tissue)) + geom_line() + geom_text(data=either[ASE==T], aes(x=ASE + 1.1, y=frac, label=Tissue, hjust=0), size=3) +
+labs(y="Fraction of genes most abundantly expressed in tissue")   +
+guides(color=FALSE)
+
+either[Tissue=="Ovary"]
+
+tmp <- either[Tissue=="Ovary", c("ASE","N","frac")]
+tmp[, N1 := trunc(N * (frac))]
+tmp[, N2 := trunc(N * (1-frac))]
+
+fisher.test(as.matrix(tmp[1:2, c(4,5)])
+
+
+
+change <- dcast(either, Tissue~ASE, value.var="frac")
+change[, delta := `TRUE` - `FALSE`]
+factorOrder <- change[order(delta), Tissue]
+change[, Tissue := factor(Tissue, levels=factorOrder)]
+ggplot(change, aes(x=Tissue, y=delta)) + geom_bar(stat="identity") + labs(x="Tissue", y="Genes with ASE are __ % less/more likely to be primarily expressed in....") + coord_flip()
+
+
+
+ggplot(both, aes(x=ASE, y=frac, color=tissue, group=tissue)) + geom_line() + facet_grid(.~test)
+
+ggplot(post, aes(x=post.ASE, y=frac, color=tissue, group=tissue)) + geom_line()
+
+
+window_width <- 0.5
+
+      m.ag.down <- foreach(x=seq(from=(-5), to=5, by=0.01), .combine="rbind", .errorhandling="remove")%do%{
+
+          data.table(frac.obs=as.numeric(prop.table(table(m[-log2FoldChange > x][padj<.05]$tissue))),
+                     n.obs=sum(table(m[-log2FoldChange > x][padj<.05]$tissue)),
+                     frac.exp=as.numeric(prop.table(table(m$tissue))),
+                     n.exp=sum(table(m$tissue)),
+                     tissue=names(table(m[-log2FoldChange > x][padj<.05]$tissue)),
+                     x=-x,
+                     class="down")
+      }
+
+
+
+
+
+
+
+
+    m.ag <- foreach(x=seq(from=0, to=5, by=.01), .combine="rbind")%do%{
+
+        data.table(frac.obs=as.numeric(prop.table(table(m[log2FoldChange < -x]$tissue))),
+                   n.obs=sum(table(m[log2FoldChange< -x]$tissue)),
+                   frac.exp=as.numeric(prop.table(table(m$tissue))),
+                   n.exp=sum(table(m$tissue)),
+                   tissue=names(table(m[log2FoldChange < -x]$tissue)),
+                   x=-x)
+    }
+
+    m.ag[,p:= 1 - pbinom(frac.obs*n.obs, n.obs, frac.exp)]
+
+    ggplot() +
+        geom_line(data=m.ag[(n.obs*frac.obs)>10], aes(x=x, y=frac.obs, group=tissue)) +
+        geom_point(data=m.ag[(n.obs*frac.obs)>10][p<.05], aes(x=x, y=frac.obs, color=-log10(p)))
+
+ unique(m.ag[p<.05][n.obs*frac.obs>50]$tissue)
+
+
+
+
+
+
+    ggplot(data=m.ag[n.obs*>100], aes(x=frac.obs, y=-log10(p), group=tissue)) + geom_line()
+
+
+
+    m.ag <- foreach(x=seq(from=0, to=5, by=.01), .combine="rbind")%do%{
+
+        data.table(frac=c(as.numeric(prop.table(table(m[log2FoldChange>x]$tissue))),
+                          as.numeric(prop.table(table(m[log2FoldChange< -x]$tissue)))),
+                   n=c(sum(table(m[log2FoldChange>x]$tissue)),
+                       sum(table(m[log2FoldChange< -x]$tissue))),
+                   tissue=c(names(table(m[log2FoldChange>x]$tissue)),
+                            names(table(m[log2FoldChange< -x]$tissue))),
+                   x=c(x, -x))
+    }
+
+
+
+    o
+
+    m.ag <- m[,list(mu.fc=mean(log2FoldChange)), list(tissue, rank)]
+
+	ggplot(data=m.ag, aes(tissue, rank)) +
+		geom_bar(aes(fill=factor(rank, levels=1:max(res.fa.dt$r2))), position = "dodge", stat="identity") +
+		theme(axis.text.x = element_text(angle = 45, hjust=1),
+			legend.title = element_blank()) +
+		facet_grid(upRegEgg~.)
+
+
+    m.ag <- m[,list(or=fisher.test(table(sign(log2FoldChange), padj<=1e-20))$estimate), list(tissue, rank)]
+
+    ggplot(data=m.ag, aes(x=rank, y=log2(or), group=tissue, color=tissue)) + geom_line()
+
+
+
+
+
+
+
+### old - this works
+
+	#####################################
+	### enrichment in certain tissues ###
+	#####################################
+			### p-adjust after filtering
+				res.dt[use==T,pa := p.adjust(pvalue, method="fdr")]
+
+				res.dt <- na.omit(res.dt)
+				save(res.dt, file="~/res.dt")
+
+		### load
+			load(file="~/res.dt")
+			setkey(res.dt, FlyBaseID)
+
+		### new flyAtlas
+			#wget ftp://flybase.org/flybase/associated_files/Gelbart.2010.10.13.tar.gz
+
+			flyAtlas <- fread("/mnt/spicy_1/flyAtlas/Gelbart.2010.10.13/HTD_FlyAtlas_Unique_2010-10-05.txt")
+			flyAtlas[,lifeStage:=ifelse(grepl("Adult", V5), "adult",
+										ifelse(grepl("Larval", V5), "larval", NA))]
+			flyAtlas <- flyAtlas[lifeStage=="adult"]
+			setnames(flyAtlas, c("V2", "V5", "V6"), c("FlyBaseID", "tissue", "mean"))
+
+		### mege flyAtlas data in with res.dt
+			setkey(flyAtlas, FlyBaseID)
+			setkey(res.dt, FlyBaseID)
+			res.fa.dt <- merge(res.dt, flyAtlas[,c("FlyBaseID", "tissue", "mean"),with=F])
+
+		### remove male parts
+			setkey(res.fa.dt, tissue)
+			res.fa.dt <- res.fa.dt[!J(c("Adult_Male_Accessory_Gland", "Adult_Testis"))]
+
+		### re-rank w.r.t how does each tissue rank for that gene
+			rank2 <- res.fa.dt[!is.na(mean),list(r2=rank(mean),
+												len=length(mean),
+												tissue),
+											list(FlyBaseID)]
+			setkey(rank2, tissue, FlyBaseID)
+			setkey(res.fa.dt, tissue, FlyBaseID)
+
+			res.fa.dt <- merge(res.fa.dt, rank2)
+
+		### re-rank w.r.t how does gene rank w.r.t that tissue
+			rank3 <- res.fa.dt[!is.na(mean),list(r3=rank(mean)/(length(mean) + 1), FlyBaseID),
+								list(tissue)]
+			setkey(rank3, tissue, FlyBaseID)
+			setkey(res.fa.dt, tissue, FlyBaseID)
+
+			res.fa.dt <- merge(res.fa.dt, rank3)
+
+
+			#ggplot(data=res.fa.dt, aes(tissue, r)) + geom_boxplot(aes(fill=log2FoldChange>0)) + facet_grid(~pa<=0.00005)
+
+
+		### simple plot
+
+			genePr <- foreach(i=1:max(res.fa.dt$r2), .combine="rbind")%do%{
+				res.fa.dt[,list(pr.rank2=mean(r2==i),
+								rank=i,
+								n=length(r2)),
+							list(tissue,
+								sigDE=(pa<=0.05),
+								upRegEgg=log2FoldChange>0)]
+			}
+
+			ggplot(data=genePr[sigDE==T], aes(tissue, pr.rank2)) +
+				geom_bar(aes(fill=factor(rank, levels=1:max(res.fa.dt$r2))), position = "dodge", stat="identity") +
+				theme(axis.text.x = element_text(angle = 45, hjust=1),
+					legend.title = element_blank()) +
+				facet_grid(upRegEgg~.)
+
+
+			tissueEnrich.pr[sigDE==T][upRegEgg==T]
+
+		### make note of these 2600 genes
+			res.fa.dt[pa<=.05 & log2FoldChange>0 & tissue=="Adult_Ovary" & r2==max(res.fa.dt$r2), ovaryTarget:=T]
+			res.fa.dt[is.na(ovaryTarget), ovaryTarget:=F]
+
+		### save
+			save(res.fa.dt, file="~/resFaDt.Rdata")
+
+			load(file="~/resFaDt.Rdata")
+
+		### redo all of above with modEncode data
+			### sanity check - are genes that were dropped from res.dt bc of filtering, weakly expressed?
+				#sed '1,5d' gene_rpkm_report_fb_2016_05.tsv | awk '{if(NF==12) print $0}' | grep -v "WARNING" > gene_rpkm_report_fb_2016_05.clean.tsv
+				setkey(res.dt, FlyBaseID)
+				modEncode <- fread("/mnt/spicy_1/flyAtlas/gene_rpkm_report_fb_2016_05.clean.tsv")
+				setnames(modEncode, "FlyBaseID#", "FlyBaseID")
+				setkey(modEncode, FlyBaseID)
+
+				res2 <- merge(res.dt, modEncode, all.y=T)
+				setkey(res2, RNASource_name)
+
+			### extract out relevant tissues
+				res.mod.dt <- res2[J(c("mE_mRNA_A_4d_carcass",
+										"mE_mRNA_A_4d_dig_sys",
+										"mE_mRNA_A_MateF_1d_head",
+										"mE_mRNA_A_MateF_4d_head",
+										"mE_mRNA_A_MateF_20d_head",
+										"mE_mRNA_AdF_Ecl_1days",
+										"mE_mRNA_AdF_Ecl_5days",
+										"mE_mRNA_AdF_Ecl_30days",
+										"mE_mRNA_A_MateF_4d_ovary"))]
+
+			### ranks for mod-Encode
+				rank2 <- res.mod.dt[!is.na(RPKM_value),list(r2=rank(RPKM_value),
+													len=length(RPKM_value),
+													RNASource_name),
+												list(FlyBaseID)]
+
+				setkey(rank2, RNASource_name, FlyBaseID)
+				setkey(res.mod.dt, RNASource_name, FlyBaseID)
+
+				res.mod.dt <- merge(res.mod.dt, rank2)
+
+			### ovary targets
+				res.mod.dt[pa<=.05 & log2FoldChange>0 & RNASource_name=="mE_mRNA_A_MateF_4d_ovary" & r2==max(res.mod.dt$r2), ovaryTarget:=T]
+				res.mod.dt[is.na(ovaryTarget), ovaryTarget:=F]
+
+
+			### save
+				save(res.mod.dt, file="~/resModDt.Rdata")
+
+			### simple modEncode plot
+
+				genePr <- foreach(i=1:max(res.mod.dt$r2), .combine="rbind")%do%{
+					res.mod.dt[,list(pr.rank2=mean(r2==i),
+									rank=i,
+									n=length(r2)),
+								list(RNASource_name,
+									sigDE=(pa<=0.05),
+									upRegEgg=log2FoldChange>0)]
+				}
+
+				ggplot(data=genePr[sigDE==T], aes(RNASource_name, pr.rank2)) +
+					geom_bar(aes(fill=factor(rank, levels=1:max(res.mod.dt$r2))), position = "dodge", stat="identity") +
+					theme(axis.text.x = element_text(angle = 45, hjust=1),
+						legend.title = element_blank()) +
+					facet_grid(upRegEgg~.)

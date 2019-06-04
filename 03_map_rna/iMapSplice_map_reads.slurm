@@ -14,7 +14,7 @@ module load singularity
 # where n is the nth run within the SLURM job array
 
 filestem=$(sed -n ${SLURM_ARRAY_TASK_ID}p filestems.txt)
-tmpdir=/dev/shm/${USER}/${SLURM_JOB_ID}/${SLURM_ARRAY_TASK_ID}
+tmpdir=/scratch/${USER}/tmpMapping/${SLURM_JOB_ID}/${SLURM_ARRAY_TASK_ID}
 working_directory=$(pwd)
 mkdir -p ${tmpdir}
 

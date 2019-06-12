@@ -66,7 +66,7 @@ library(data.table)
 args <- commandArgs(trailingOnly=TRUE)
 
 convert_vcf_to_ref_dosage <- function(DT) {
-  cols <- colnames(DT)[10:ncol(DT)]
+  cols <- colnames(DT)[3:ncol(DT)]
   for(col in cols) set(DT, i=which(DT[[col]]=="0/0"), j=col, value="2")
   for(col in cols) set(DT, i=which(DT[[col]]=="1/0"), j=col, value="1")
   for(col in cols) set(DT, i=which(DT[[col]]=="0/1"), j=col, value="1")

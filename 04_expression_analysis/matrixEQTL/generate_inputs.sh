@@ -97,7 +97,7 @@ args <- commandArgs(trailingOnly=TRUE)
 minimum_MAF <- as.numeric(args[1])
 minimum_fraction_genotyped <- as.numeric(args[2])
 
-convert_vcf_to_ref_dosage <- function(DT) {
+convert_vcf_to_ref_dosage <- function(DT, sampleNames) {
   cols <- colnames(DT)[3:ncol(DT)]
   for(col in cols) set(DT, i=which(DT[[col]]=="0/0"), j=col, value="2")
   for(col in cols) set(DT, i=which(DT[[col]]=="1/0"), j=col, value="1")
@@ -105,12 +105,13 @@ convert_vcf_to_ref_dosage <- function(DT) {
   for(col in cols) set(DT, i=which(DT[[col]]=="1/1"), j=col, value="0")
 
   # filter by missing data
+  DT[, N_missing_genotype := apply(.SD, 1, function(x) sum(is.na(x))), .SD=sampleNames]
 
   # filter by MAF
 
 }
 
-samples <- readLines('samples.txt')
+sampleNames <- readLines('samples.txt')
 
 for(chromosome in chromosomes) {
   inFile <- paste(chromosome, ".vcf", sep="")
@@ -118,10 +119,10 @@ for(chromosome in chromosomes) {
   nCol <- as.numeric(system(paste("head -n 1 ", inFile, " | wc -w", sep=""), intern=TRUE))
 
   # Read in VCF file for given chromosome, converting any genotype with "." into NA
-  dat <- fread(inFile, na.strings=c("./.", "./0", "./1", "0/.", "1/."), select=c("CHROM", "POS", samples), colClasses=rep(c("character"), nCol))
+  dat <- fread(inFile, na.strings=c("./.", "./0", "./1", "0/.", "1/."), select=c("CHROM", "POS", sampleNames), colClasses=rep(c("character"), nCol))
 
   # Convert VCF genotype code into reference allele dosage
-  convert_vcf_to_ref_dosage(dat)
+  convert_vcf_to_ref_dosage(dat, sampleNames)
 
   # Convert sample IDs
   ids <- paste(dat[,CHROM], dat[,POS], sep="_")

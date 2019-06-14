@@ -6,11 +6,32 @@
 #SBATCH --partition largemem
 #SBATCH --account berglandlab
 
+minimum_BaseMean=1
+minimum_l2fc=0
+
+minimum_MAF="0.1"
+minimum_fraction_genotyped="0.8"
+
 # Print header to single file for each chromosome
 grep -m 1 -e "^#CHROM" ../../01_reconstructions/filtered_estimates/filtered.all.vcf | sed 's/#//g' | tee "2L.vcf" "2R.vcf" "3L.vcf" "3R.vcf" "X.vcf"
 
 # Split VCF into separate chromosomes
 awk -F "\t" '{if($1!~/^#/) {s=$1".vcf";  print >> s}}' ../../01_reconstructions/filtered_estimates/filtered.all.vcf
+
+# Get filtered gene IDs
+Rscript - ${minimum_BaseMean} ${minimum_l2fc} <<EOF
+#!/usr/bin/env Rscript
+library(data.table)
+
+args <- commandArgs(trailingOnly=TRUE)
+minimum_BaseMean <- as.numeric(args[1])
+minimum_l2fc <- as.numeric(args[2])
+
+DEseq_output <- fread('../DE/dds.shrink.dat')
+pass_filter <- DEseq_output[baseMean >= minimum_BaseMean & abs(log2FoldChange) > minimum_l2fc]
+
+writeLines(pass_filter[,FlyBaseID], con="filtered_gene_ids.txt")
+EOF
 
 # Format gene expression file
 Rscript - <<EOF
@@ -54,16 +75,27 @@ TPM_matrix <- foreach(sample=sampleNames[,id], .combine="cbind") %do% {
     return(TPM)
 }
 
-fwrite(cbind("id" = dat[,GeneID], TPM_matrix), file="TPM_expression.txt", quote=F, na="NA", col.names=T, row.names=F, sep="\t")
+TPM_matrix <- cbind("id" = dat[,GeneID], TPM_matrix
+
+# load filtered genes (by baseMean expression)
+pass_filter <- readLines('filtered_gene_ids.txt')
+TPM_matrix <- TPM_matrix[GeneID %in% pass_filter]
+
+fwrite(TPM_matrix, file="TPM_expression.txt", quote=F, na="NA", col.names=T, row.names=F, sep="\t")
 EOF
 
 
 # Generate Genotypes file
-Rscript - 2L 2R 3L 3R X <<EOF
+Rscript - ${minimum_MAF} ${minimum_fraction_genotyped} <<EOF
 #!/usr/bin/env Rscript
 library(data.table)
 
+chromosomes <- c("2L","2R","3L","3R","X")
+
 args <- commandArgs(trailingOnly=TRUE)
+
+minimum_MAF <- as.numeric(args[1])
+minimum_fraction_genotyped <- as.numeric(args[2])
 
 convert_vcf_to_ref_dosage <- function(DT) {
   cols <- colnames(DT)[3:ncol(DT)]
@@ -71,11 +103,16 @@ convert_vcf_to_ref_dosage <- function(DT) {
   for(col in cols) set(DT, i=which(DT[[col]]=="1/0"), j=col, value="1")
   for(col in cols) set(DT, i=which(DT[[col]]=="0/1"), j=col, value="1")
   for(col in cols) set(DT, i=which(DT[[col]]=="1/1"), j=col, value="0")
+
+  # filter by missing data
+
+  # filter by MAF
+
 }
 
 samples <- readLines('samples.txt')
 
-for(chromosome in args) {
+for(chromosome in chromosomes) {
   inFile <- paste(chromosome, ".vcf", sep="")
   outFile <- paste(chromosome, ".genotypes", sep="")
   nCol <- as.numeric(system(paste("head -n 1 ", inFile, " | wc -w", sep=""), intern=TRUE))
@@ -96,6 +133,26 @@ for(chromosome in args) {
 }
 EOF
 
+
+# Get filtered SNPs by minimum MAF
+Rscript - ${minimum_MAF} ${chromosome} <<EOF
+#!/usr/bin/env Rscript
+library(data.table)
+
+args <- commandArgs(trailingOnly=TRUE)
+minimum_MAF <- as.numeric(args[1])
+chromosome <- args[1]
+
+genotypes <- fread(paste(chromosome, ".
+
+
+DEseq_output <- fread('../DE/dds.shrink.dat')
+pass_filter <- DEseq_output[baseMean >= minimum_BaseMean & abs(log2FoldChange) > minimum_l2fc]
+
+writeLines(pass_filter[,FlyBaseID], con="filtered_gene_ids.txt")
+EOF
+
+
 # Generate gene location (annotation) file
 Rscript - <<EOF
 #!/usr/bin/env Rscript
@@ -113,6 +170,9 @@ gc_to_fb <- fread('../dm3.GC_to_FB.txt', header=TRUE, col.names=c("GC_Annotation
 dat <- merge(gtf, gc_to_fb, by.x="AnnotationID", by.y="GC_Annotation_ID")
 setnames(dat, "FB_id", "geneid")
 dat.out <- dat[, c("geneid", "chr", "s1", "s2")]
+
+pass_filter <- readLines('filtered_gene_ids.txt')
+dat.out <- dat.out[geneid %in% pass_filter]
 
 for(chromosome in c("2L","2R","3L","3R","x")) {
   outFile <- paste(chromosome, ".geneloc.txt", sep="")

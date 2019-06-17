@@ -150,5 +150,30 @@ done
 
 rm ${fileID}.stats
 
+# Calculate most likely parents
+
+
+# BEGIN calculate most likely parents
+
+module load R/3.3.0
+
+Rscript - <<EOF > $ind_id.mlp
+#!/usr/bin/env Rscript
+
+library(data.table)
+
+harp.freqs <- fread("${fileID}.${chromosome}.freqs", header=FALSE, showProgress=FALSE, na.strings="-nan")
+founders.list <- fread('founders.txt', header=FALSE)   # This file may need to be created
+setnames(harp.freqs, c("chromosome","start","stop", founders.list[,V1]))
+
+harp.freqs.long <- melt(harp.freqs, measure.vars = colnames(harp.freqs)[4:length(colnames(harp.freqs))], variable="lineID", value="freq")
+harp.freqs.long[, q99 := quantile(freq, 0.99, na.rm=TRUE), by=chromosome]
+
+mlp <- harp.freqs.long[, .N, by=list(chromosome, lineID, freq>=q99)][freq==TRUE][order(chromosome,-N)][,c("chromosome","lineID","N")]
+write.table(mlp, file="", quote=FALSE, row.names=FALSE, col.names=TRUE, sep="\t")
+
+# output: $ind_id.mlp
+EOF
+
 # archive readcounts after HARP
 zip -Tm ${fileID}.zip ${fileID}.*.readcounts ${fileID}.*.freqs ${fileID}.Rsubread.bam.indel.vcf

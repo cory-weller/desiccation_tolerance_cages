@@ -12,3 +12,9 @@ rm low_coverage_dna.tar
 # Retrieve reference genome from FlyBase
 wget ftp://ftp.flybase.net/releases/FB2014_03/dmel_r5.57/fasta/dmel-all-chromosome-r5.57.fasta.gz -O dm3.fasta.gz && \
 gunzip dm3.fasta.gz
+
+# Retrieve dgrp2.vcf
+
+# polarize VCF
+
+Rscript polarizeVCF.Rscript dgrp2.vcf haplotypes.polarized && gzip haplotypes.polarized

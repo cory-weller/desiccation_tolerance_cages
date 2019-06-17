@@ -24,6 +24,10 @@ if [[ ! -f filestems.txt ]]; then
     ls ${readDirectory}/*.fastq.gz | xargs -n1 basename | cut -d "_" -f 1 | sort -u > filestems.txt
 fi
 
+if [[ ! -f founders.txt ]]; then
+    zgrep -m 1 "CHROM" haplotypes.vcf.gz | cut -f > filestems.txt
+fi
+
 
 # fileID="23HR-1-481_S289"
 fileID=$(sed -n ${SLURM_ARRAY_TASK_ID}p filestems.txt)

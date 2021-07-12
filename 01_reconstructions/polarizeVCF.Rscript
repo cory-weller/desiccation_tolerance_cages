@@ -1,16 +1,16 @@
 #!/usr/bin/env Rscript
 
-# argument 1 = infilename
-# argument 2 = outfilename
+# argument 1 = infilename (as .vcf.gz)
+# argument 2 = outfilename (will be output as uncompressed .vcf)
 
-# VCF file should already be curated to only include bi-allelic SNPs (no indels)
+# VCF file should already be curated to only include bi-allelic SNPs (no indels, duplications, CNV)
 # and individuals should have homozygous genotypes (fully inbred)
 # any heterozygous sites will be set to NA
 
 library(data.table)
 
 importVCF <- function(filename) {
-	DT <- fread(filename, na.strings=c(".","./.", "./1", "./0", "0/.", "1/.", "0/1", "1/0"), showProgress=FALSE, header=TRUE, skip="#CHROM")
+	DT <- fread(cmd="zcat ", filename, sep=" "), na.strings=c(".","./.", "./1", "./0", "0/.", "1/.", "0/1", "1/0"), showProgress=FALSE, header=TRUE, skip="#CHROM")
     polarizeVCF(DT)
     return(DT)
 }

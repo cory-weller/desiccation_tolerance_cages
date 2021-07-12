@@ -30,7 +30,7 @@ polarizeVCF <- function(DT) {
 
     # convert anything else to 0
     for (j in cols) {
-        set(DT, which(! DT[[j]] %in% c("0","1")), j, ".")
+        set(DT, which(! DT[[j]] %in% c("0","1")), j, NA)
     }
 
     invisible(DT[])
